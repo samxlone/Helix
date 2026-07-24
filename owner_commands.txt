@@ -1,0 +1,138 @@
+===============================================================================
+                    👑 HELIX BOT OWNER-ONLY COMMANDS LIST
+===============================================================================
+
+-------------------------------------------------------------------------------
+1. ECONOMY COMMANDS
+-------------------------------------------------------------------------------
+
+Command:       addmoney (Aliases: addbalance)
+Description:   Adds or subtracts coins to/from a user's wallet balance.
+Usage:         !addmoney @User <amount>
+               !addmoney @User -500
+Prefixless:    Yes
+
+-------------------------------------------------------------------------------
+2. LEVELING COMMANDS
+-------------------------------------------------------------------------------
+
+Command:       addxp
+Description:   Awards XP to a user. Triggers a level up and awards configured level roles if thresholds are met.
+Usage:         !addxp @User <amount>
+Prefixless:    Yes
+
+Command:       ignorexp
+Description:   Toggles XP ignored status for a user. While ignored, the user receives no XP from messages.
+Usage:         !ignorexp @User
+Prefixless:    Yes
+
+-------------------------------------------------------------------------------
+3. SYSTEM & DIAGNOSTIC COMMANDS
+-------------------------------------------------------------------------------
+
+Command:       restart
+Description:   Safely reboots the bot process and updates the online confirmation message with server nickname upon reconnecting.
+Usage:         !restart
+Prefixless:    Yes
+
+Command:       sync
+Description:   Forces Discord slash/application commands to sync with the current server or globally.
+Usage:         !sync [guild_id]
+               /sync
+Prefixless:    Yes
+
+Command:       voice_debug
+Description:   Runs voice connection diagnostics, checks Opus/PyNaCl status, and lists active voice streams.
+Usage:         !voice_debug
+Prefixless:    Yes
+
+Command:       presence
+Description:   Sets global bot presence (activity type, status, text, streaming URL). Changes are saved to database.
+Usage:         !presence <playing|streaming|listening|watching> <online|idle|dnd|invisible> <text> [streaming_url]
+Example:       !presence listening online Lofi beats
+Prefixless:    Yes
+
+Command:       presence_add
+Description:   Adds an activity entry to the automatic presence rotation list.
+Usage:         !presence_add <playing|streaming|listening|watching> <online|idle|dnd|invisible> <text>
+Prefixless:    Yes
+
+Command:       presence_rotation
+Description:   Controls automatic presence rotation (start, stop, list, remove, clear).
+Usage:         !presence_rotation start <seconds> (minimum 15 seconds)
+               !presence_rotation stop
+               !presence_rotation list
+               !presence_rotation remove <index>
+               !presence_rotation clear
+Prefixless:    Yes
+
+-------------------------------------------------------------------------------
+4. MUSIC COMMANDS
+-------------------------------------------------------------------------------
+
+Command:       volume (Aliases: vol)
+Description:   Displays or sets the music player volume to any unrestricted percentage.
+Usage:         !volume
+               !volume <percentage> (e.g. !volume 5000)
+Prefixless:    Yes
+
+
+-------------------------------------------------------------------------------
+5. PREFIXLESS PERMISSIONS CONTROL
+-------------------------------------------------------------------------------
+
+Command:       prefixless_grant (Aliases: plgrant, plallow)
+Description:   Grants a user permission to run commands without prefixes in a specific server.
+Usage:         !prefixless_grant @User [guild_id]
+Prefixless:    Yes
+
+Command:       prefixless_revoke (Aliases: plrevoke, pldeny)
+Description:   Revokes prefixless command permissions for a user in a server.
+Usage:         !prefixless_revoke @User [guild_id]
+Prefixless:    Yes
+
+Command:       prefixless_list (Aliases: pllist)
+Description:   Lists all users who have prefixless command permissions in a server.
+Usage:         !prefixless_list [guild_id]
+Prefixless:    Yes
+
+-------------------------------------------------------------------------------
+6. BOT PROFILE CUSTOMIZATION COMMANDS
+-------------------------------------------------------------------------------
+
+Command:       server_avatar (Aliases: setserveravatar, setserverpfp, server_pfp)
+Description:   Sets or resets the bot's server-specific profile picture (PFP) for a server.
+Usage:         !server_avatar <image_url> [guild_id]
+               !server_avatar reset [guild_id]
+               (or attach an image file with !server_avatar)
+Prefixless:    Yes
+
+Command:       server_banner (Aliases: setserverbanner)
+Description:   Sets or resets the bot's server-specific profile banner for a server.
+Usage:         !server_banner <image_url> [guild_id]
+               !server_banner reset [guild_id]
+               (or attach an image file with !server_banner)
+Prefixless:    Yes
+
+Command:       global_avatar (Aliases: setglobalavatar, setbotavatar)
+Description:   Changes the bot's global account profile picture across all servers.
+Usage:         !global_avatar <image_url>
+               !global_avatar reset
+               (or attach an image file with !global_avatar)
+Prefixless:    Yes
+
+Command:       global_banner (Aliases: setglobalbanner, setbotbanner)
+Description:   Changes the bot's global account profile banner across all servers.
+Usage:         !global_banner <image_url>
+               !global_banner reset
+               (or attach an image file with !global_banner)
+Prefixless:    Yes
+
+Command:       server_about (Aliases: setserverabout, server_bio, setserverbio)
+Description:   Sets or resets the bot's server-specific "About Me" bio for a server.
+Usage:         !server_about <text>
+               !server_about reset
+Prefixless:    Yes
+
+===============================================================================
+

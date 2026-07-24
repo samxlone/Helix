@@ -1,0 +1,9 @@
+# Default configuration values for MultiPurposeDiscordBot
+# Values here are used as fallbacks and can be overridden by environment variables.
+
+prefix: "!"
+log_level: "INFO"
+database:
+  path: "data/database.sqlite3"
+owner_id: null
+xp_enabled: true
