@@ -170,5 +170,6 @@ class YouTubeProvider(Provider):
                 info = ydl.extract_info(url, download=False)
                 return info
         except Exception as exc:
-            logger.exception("yt-dlp extraction failed: %s", exc)
+            logger.warning("yt-dlp extraction failed for %s: %s", url, exc)
             return None
+

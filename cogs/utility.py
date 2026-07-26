@@ -136,158 +136,183 @@ class Utility(commands.Cog):
     def cog_unload(self):
         self.check_reminders.cancel()
 
-    @commands.hybrid_command(name="serverinfo", aliases=["server", "si"])
+    @commands.hybrid_command(name="serverinfo", aliases=["sinfo", "si"])
     @commands.guild_only()
     async def serverinfo(self, ctx: commands.Context):
         """Displays rich information and statistics about the server."""
-        guild = ctx.guild
-        
-        # Count members
-        total_members = guild.member_count
+        guild: discord.Guild = ctx.guild
+
+        total_members = guild.member_count or len(guild.members)
         bot_members = sum(1 for m in guild.members if m.bot)
-        human_members = total_members - bot_members
-        
-        # Count statuses if presences intent is available
-        online = sum(1 for m in guild.members if m.status == discord.Status.online)
-        idle = sum(1 for m in guild.members if m.status == discord.Status.idle)
-        dnd = sum(1 for m in guild.members if m.status == discord.Status.dnd)
-        offline = total_members - (online + idle + dnd)
-        
-        # Count channels
+        human_members = max(0, total_members - bot_members)
+
         categories = len(guild.categories)
         text_channels = len(guild.text_channels)
         voice_channels = len(guild.voice_channels)
-        
-        # Embed building
+        total_channels = len(guild.channels)
+
+        created_ts = int(guild.created_at.timestamp())
+        owner_mention = guild.owner.mention if guild.owner else f"<@{guild.owner_id}>"
+
         embed = discord.Embed(
-            title=f"🏰 {guild.name}",
-            description=f"**Server ID:** `{guild.id}`\n**Owner:** {guild.owner.mention} (`{guild.owner.id}`)",
+            title=f"Server Information — {guild.name}",
             color=discord.Color.blurple()
         )
-        
+        if guild.description:
+            embed.description = f"*{guild.description}*"
+
         if guild.icon:
             embed.set_thumbnail(url=guild.icon.url)
         if guild.banner:
             embed.set_image(url=guild.banner.url)
-            
-        # Timestamps
-        created_at = int(guild.created_at.timestamp())
-        embed.add_field(name="📅 Created", value=f"<t:{created_at}:F>\n(<t:{created_at}:R>)", inline=True)
-        
-        # Members Field
-        member_stats = (
-            f"👥 Total: **{total_members}**\n"
-            f"👤 Humans: **{human_members}**\n"
-            f"🤖 Bots: **{bot_members}**\n"
-            f"🟢 Online: **{online}** | 🟡 Idle: **{idle}** | 🔴 DND: **{dnd}** | ⚫ Off: **{offline}**"
+
+        # 1. Overview Field
+        overview = (
+            f"• **Server Name:** {guild.name}\n"
+            f"• **Server ID:** `{guild.id}`\n"
+            f"• **Owner:** {owner_mention}\n"
+            f"• **Created At:** <t:{created_ts}:F> (<t:{created_ts}:R>)"
         )
-        embed.add_field(name="👥 Members", value=member_stats, inline=False)
-        
-        # Channels Field
-        channel_stats = (
-            f"📂 Categories: **{categories}**\n"
-            f"💬 Text: **{text_channels}**\n"
-            f"🔊 Voice: **{voice_channels}**"
+        embed.add_field(name="📋 Overview", value=overview, inline=False)
+
+        # 2. Member & Channel Stats
+        members_str = (
+            f"• **Total Members:** **{total_members:,}**\n"
+            f"• **Humans:** **{human_members:,}** | **Bots:** **{bot_members:,}**"
         )
-        embed.add_field(name="💬 Channels", value=channel_stats, inline=True)
-        
-        # Security / Boosts Field
-        boosts = (
-            f"🚀 Level: **{guild.premium_tier}**\n"
-            f"💎 Boosts: **{guild.premium_subscription_count}**\n"
-            f"🛡️ Verification: **{str(guild.verification_level).upper()}**"
+        embed.add_field(name="👥 Members", value=members_str, inline=True)
+
+        channels_str = (
+            f"• **Text Channels:** **{text_channels}**\n"
+            f"• **Voice Channels:** **{voice_channels}**\n"
+            f"• **Categories:** **{categories}**\n"
+            f"• **Total Channels:** **{total_channels}**"
         )
-        embed.add_field(name="🚀 Server Boosts & Security", value=boosts, inline=True)
-        
-        # Features & Roles count
-        features = len(guild.features)
-        roles = len(guild.roles)
-        embed.add_field(name="🛡️ Other Information", value=f"Roles Count: **{roles}**\nServer Features: **{features}**", inline=False)
-        
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created & Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
+        embed.add_field(name="💬 Channels", value=channels_str, inline=True)
+
+        # 3. Boosts & Security
+        booster_role = getattr(guild, "premium_subscriber_role", None)
+        booster_role_str = booster_role.mention if booster_role else "None"
+        boost_str = (
+            f"• **Boost Level:** **Level {guild.premium_tier}**\n"
+            f"• **Total Boosts:** **{guild.premium_subscription_count}**\n"
+            f"• **Booster Role:** {booster_role_str}"
+        )
+        embed.add_field(name="🚀 Server Boosts", value=boost_str, inline=True)
+
+        verif_level = str(guild.verification_level).capitalize()
+        filter_level = str(guild.explicit_content_filter).replace("_", " ").capitalize()
+        security_str = (
+            f"• **Verification:** **{verif_level}**\n"
+            f"• **Content Filter:** **{filter_level}**"
+        )
+        embed.add_field(name="🛡️ Security", value=security_str, inline=True)
+
+        # 4. Roles Summary
+        roles = [r for r in guild.roles if r != guild.default_role]
+        if len(roles) <= 12:
+            roles_display = ", ".join(r.mention for r in roles) if roles else "None"
         else:
-            embed.set_footer(text="Owned by Bot Owner")
-            
+            top_few = ", ".join(r.mention for r in roles[-8:])
+            roles_display = f"{top_few}\n*...and {len(roles) - 8} more roles*"
+
+        embed.add_field(name=f"🎭 Server Roles [{len(guild.roles)}]", value=roles_display, inline=False)
+
+        embed.set_footer(text=f"Requested by {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="userinfo", aliases=["user", "whois", "ui"])
     @commands.guild_only()
     async def userinfo(self, ctx: commands.Context, member: Optional[discord.Member] = None):
-        """Displays extensive user profile details, roles, economy, and leveling stats."""
-        target = member or ctx.author
-        
-        # Get economy balance
-        wallet, bank = await get_balance(target.id)
-        
-        # Get leveling stats
-        level, xp = await get_level_info(target.id)
-        needed = xp_needed_for_next(level)
-        
-        # Roles list (excluding @everyone)
-        roles = [r.mention for r in target.roles if r != ctx.guild.default_role]
-        roles_str = ", ".join(roles[:15]) if roles else "None"
-        if len(roles) > 15:
-            roles_str += f" ...and {len(roles) - 15} more roles"
-            
+
+
+        """Displays comprehensive user profile information, roles, permissions, and timestamps."""
+        target: discord.Member = member or ctx.author
+
+        color = target.color if target.color and target.color.value != 0 else discord.Color.blurple()
         embed = discord.Embed(
-            title=f"👤 User Profile: {target.display_name}",
-            description=f"**User ID:** `{target.id}`\n**Mention:** {target.mention}",
-            color=target.color if target.color else discord.Color.blurple()
+            title=f"👤 User Information — {target.display_name}",
+            color=color
         )
-        
-        if target.avatar:
-            embed.set_thumbnail(url=target.avatar.url)
-            
-        # Join dates
-        created_at = int(target.created_at.timestamp())
-        joined_at = int(target.joined_at.timestamp()) if target.joined_at else 0
-        
-        embed.add_field(name="📅 Account Created", value=f"<t:{created_at}:F>\n(<t:{created_at}:R>)", inline=True)
-        if joined_at:
-            embed.add_field(name="📥 Server Joined", value=f"<t:{joined_at}:F>\n(<t:{joined_at}:R>)", inline=True)
-            
-        # Roles field
-        embed.add_field(name=f"🛡️ Roles ({len(roles)})", value=roles_str, inline=False)
-        
-        # Leveling Field
-        cfg = await get_guild_config(ctx.guild.id) if ctx.guild else {}
-        if not cfg.get("xp_enabled", True):
-            level_stats = "❌ Disabled on this server"
-        else:
-            level_stats = (
-                f"⭐ Level: **{level}**\n"
-                f"✨ XP: **{xp}** / **{needed}**\n"
-                f"📈 Progress: **{int((xp/needed)*100)}%**"
-            )
-        embed.add_field(name="⭐ Leveling Stats", value=level_stats, inline=True)
-        
-        # Economy Field
-        econ_stats = (
-            f"💵 Wallet: **${wallet}** coins\n"
-            f"🏦 Bank: **${bank}** coins\n"
-            f"💰 Total: **${wallet + bank}** coins"
-        )
-        embed.add_field(name="💵 Economy Balances", value=econ_stats, inline=True)
-        
-        # Badges & Statuses
+        embed.set_thumbnail(url=target.display_avatar.url)
+
+        # 1. General Info
+        user_type = "Bot 🤖" if target.bot else "User 👤"
         status_map = {
             discord.Status.online: "🟢 Online",
             discord.Status.idle: "🟡 Idle",
             discord.Status.dnd: "🔴 Do Not Disturb",
             discord.Status.offline: "⚫ Offline"
         }
-        status_str = status_map.get(target.status, "⚫ Offline")
-        embed.add_field(name="🛡️ Status", value=status_str, inline=False)
-        
+        status_str = status_map.get(getattr(target, "status", None), "⚫ Offline")
+
+        general_desc = (
+            f"• **Username:** {target.name}\n"
+            f"• **User ID:** `{target.id}`\n"
+            f"• **Mention:** {target.mention}\n"
+            f"• **Account Type:** {user_type}\n"
+            f"• **Status:** {status_str}"
+        )
+        embed.add_field(name="📋 General Information", value=general_desc, inline=False)
+
+        # 2. Timestamps
+        created_ts = int(target.created_at.timestamp())
+        joined_ts = int(target.joined_at.timestamp()) if target.joined_at else 0
+
+        embed.add_field(name="📆 Account Created", value=f"<t:{created_ts}:F>\n(<t:{created_ts}:R>)", inline=True)
+        if joined_ts:
+            embed.add_field(name="📥 Server Joined", value=f"<t:{joined_ts}:F>\n(<t:{joined_ts}:R>)", inline=True)
+
+        # 3. Server Boosting Status
+        if getattr(target, "premium_since", None):
+            boost_ts = int(target.premium_since.timestamp())
+            embed.add_field(name="🚀 Server Booster", value=f"<t:{boost_ts}:F>\n(<t:{boost_ts}:R>)", inline=True)
+        else:
+            embed.add_field(name="🚀 Server Booster", value="Not boosting this server", inline=True)
+
+        # 4. Top Role & Roles List (excluding @everyone)
+        roles = [r for r in target.roles if r != ctx.guild.default_role]
+        top_role = target.top_role if target.top_role != ctx.guild.default_role else None
+        top_role_str = top_role.mention if top_role else "None"
+        embed.add_field(name="👑 Highest Role", value=top_role_str, inline=False)
+
+        roles_mentions = [r.mention for r in roles]
+        roles_str = ", ".join(roles_mentions[:15]) if roles_mentions else "None"
+        if len(roles_mentions) > 15:
+            roles_str += f" ...and {len(roles_mentions) - 15} more roles"
+        embed.add_field(name=f"🛡️ Roles ({len(roles)})", value=roles_str, inline=False)
+
+        # 5. Key Permissions
+        perms = []
+        gp = target.guild_permissions
+        if gp.administrator:
+            perms.append("Administrator")
+        if gp.manage_guild:
+            perms.append("Manage Server")
+        if gp.manage_roles:
+            perms.append("Manage Roles")
+        if gp.manage_channels:
+            perms.append("Manage Channels")
+        if gp.kick_members:
+            perms.append("Kick Members")
+        if gp.ban_members:
+            perms.append("Ban Members")
+        if gp.moderate_members:
+            perms.append("Timeout Members")
+        if gp.manage_messages:
+            perms.append("Manage Messages")
+
+        perms_str = ", ".join(f"`{p}`" for p in perms) if perms else "`Default Member Permissions`"
+        embed.add_field(name="⚡ Key Permissions", value=perms_str, inline=False)
+
         owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
         if owner:
-            embed.set_footer(text=f"Created & Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
+            embed.set_footer(text=f"Requested by {ctx.author.display_name} • Bot owned by {owner.name}")
         else:
-            embed.set_footer(text="Owned by Bot Owner")
-            
+            embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+
         await ctx.send(embed=embed)
+
 
     @commands.hybrid_command(name="avatar", aliases=["av", "pfp"])
     async def avatar(self, ctx: commands.Context, user: Optional[discord.User] = None):
@@ -848,9 +873,13 @@ class Utility(commands.Cog):
         if not ctx.guild:
             return
 
-        # Check user permission
+        # Check user permission (Create & Manage Expressions / Emojis & Stickers, Administrator, or Guild/Bot Owner)
+        has_expr_perm = (
+            getattr(ctx.author.guild_permissions, "manage_expressions", False)
+            or getattr(ctx.author.guild_permissions, "manage_emojis_and_stickers", False)
+        )
         is_allowed = (
-            ctx.author.guild_permissions.manage_emojis_and_stickers
+            has_expr_perm
             or ctx.author.guild_permissions.administrator
             or getattr(ctx.guild, "owner_id", None) == ctx.author.id
         )
@@ -860,8 +889,9 @@ class Utility(commands.Cog):
                 is_allowed = True
 
         if not is_allowed:
-            await ctx.send("❌ You need the 'Manage Emojis and Stickers' permission to use this command.", ephemeral=True)
+            await ctx.send("❌ You need the **Create & Manage Expressions** (Manage Emojis & Stickers) permission to use this command.", ephemeral=True)
             return
+
 
         # Check bot permission
         if ctx.guild.me and not ctx.guild.me.guild_permissions.manage_emojis_and_stickers:
@@ -1052,124 +1082,308 @@ class Utility(commands.Cog):
                 await ctx.send(f"❌ Command `{command_name}` not found.", ephemeral=True)
                 return
 
+        # Check if author is Bot Owner
+        is_owner = False
+        import os
+        owner_id_str = os.getenv("OWNER_ID")
+        if owner_id_str and ctx.author.id == int(owner_id_str):
+            is_owner = True
+        else:
+            try:
+                is_owner = await self.bot.is_owner(ctx.author)
+            except Exception:
+                pass
+
+        categories_desc = (
+            "Welcome to **Helix**! Use the dropdown menu below to navigate to a command suite of your choice.\n\n"
+            "☰ **Command Modules**\n\n"
+            "> 🤖 **AI Assistant & Images** (`ai`) — Free Gemini/Groq chat & Flux image generation\n"
+            "> 🎵 **Music & Audio** (`music`) — Voice playback, queues, volume & VC speech\n"
+            "> 🛠️ **Utility & Tools** (`utility`) — Steal emojis/stickers, GIFs, polls & weather\n"
+            "> 🛡️ **Moderation & Security** (`mod`) — Interactive history, mutes, bans & modlogs\n"
+            "> 💵 **Economy & Casino** (`economy`) — Balance cards, work, daily, shop & games\n"
+            "> ⭐ **Leveling & Chat XP** (`levels`) — Rank cards, chat XP & guild leaderboards\n"
+            "> ⚙️ **Server & Settings** (`server`) — Server statistics, role info & member stats\n"
+        )
+
+        if is_owner:
+            categories_desc += "> 👑 **Owner Commands** (`owner`) — Bot profile, restart, prefixless & eval\n"
+
         embed = discord.Embed(
-            title="✨ Helix Bot Command Center",
-            description=(
-                "Welcome to **Helix**! Select a category from the dropdown menu below to view detailed command lists.\n\n"
-                "🎵 **Music & Voice** — Play music, TTS speech, queues & volume\n"
-                "🛠️ **Utility & Fun** — Steal emojis/stickers, GIFs, polls, weather & tools\n"
-                "🛡️ **Moderation & Logs** — Modlog, mutes, history section buttons & kicks/bans\n"
-                "💵 **Economy & Games** — Balances, daily, shop, rob & casino games\n"
-                "⭐ **Leveling** — Rank cards, guild leaderboards & XP toggles\n"
-                "⚙️ **Server & Settings** — Server info & prefixless permissions\n"
-                "👑 **Owner Commands** — Server avatar/banner/bio, volume % & reboot\n"
-            ),
-            color=discord.Color.blurple()
+            color=discord.Color.from_rgb(88, 101, 242)
+        )
+        bot_user = getattr(self.bot, "user", None)
+        if bot_user and hasattr(bot_user, "display_avatar"):
+            embed.set_author(name="Helix Command Center", icon_url=bot_user.display_avatar.url)
+        else:
+            embed.set_author(name="Helix Command Center")
+        embed.description = categories_desc
+
+        embed.add_field(
+            name="💡 Quick Tip",
+            value="Select a module from the dropdown below to explore detailed commands, or use `!help <command>` for an instant command breakdown.",
+            inline=False
         )
         owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        owner_text = f" | Created & Owned by {owner.name}" if owner else ""
-        embed.set_footer(text=f"Select a category below to explore commands{owner_text}")
+        owner_text = f" • Created by {owner.name}" if owner else ""
+        embed.set_footer(text=f"Helix Systems{owner_text}")
 
-        view = HelpView(self.bot)
+        view = HelpView(self.bot, is_owner=is_owner)
         await ctx.send(embed=embed, view=view)
 
 
 class HelpSelect(discord.ui.Select):
-    def __init__(self, bot):
+    def __init__(self, bot, is_owner: bool = False):
         options = [
+            discord.SelectOption(label="AI Chatbot", emoji="🤖", description="Ask AI, imagine image gen, daily limits, AI channel"),
             discord.SelectOption(label="Music & Voice", emoji="🎵", description="Play music, TTS, queue, volume, voice status"),
             discord.SelectOption(label="Utility & Fun", emoji="🛠️", description="Steal emojis/stickers, GIFs, polls, weather, calc"),
             discord.SelectOption(label="Moderation & Logs", emoji="🛡️", description="Mute, kick, ban, warn, modlog, history sections"),
             discord.SelectOption(label="Economy & Games", emoji="💵", description="Balance, daily, work, rob, shop, casino games"),
             discord.SelectOption(label="Leveling", emoji="⭐", description="Rank, levels leaderboard, toggle XP"),
-            discord.SelectOption(label="Server & Settings", emoji="⚙️", description="Server info, role info, prefixless settings"),
-            discord.SelectOption(label="Owner Commands", emoji="👑", description="Bot profile avatars/banners/bio, restart, sync"),
+            discord.SelectOption(label="Server & Settings", emoji="⚙️", description="Server info, role info, member count"),
         ]
+
+        if is_owner:
+            options.append(
+                discord.SelectOption(label="Owner Commands", emoji="👑", description="Bot profile, restart, sync, addxp, prefixless, eval")
+            )
         super().__init__(placeholder="Choose a command category...", min_values=1, max_values=1, options=options)
         self.bot = bot
+        self.is_owner = is_owner
 
     async def callback(self, interaction: discord.Interaction):
         cat = self.values[0]
-        embed = discord.Embed(color=discord.Color.blurple())
+        embed = discord.Embed(color=discord.Color.from_rgb(88, 101, 242))
+        bot_user = getattr(self.bot, "user", None)
+        if bot_user and hasattr(bot_user, "display_avatar"):
+            embed.set_author(name=f"Helix Help • {cat}", icon_url=bot_user.display_avatar.url)
+        else:
+            embed.set_author(name=f"Helix Help • {cat}")
 
-        if cat == "Music & Voice":
-            embed.title = "🎵 Music & Voice Commands"
-            embed.description = (
-                "`play` / `p <query|url>` — Play a song or queue it\n"
-                "`tts say <words>` — Text-to-Speech audio in VC with auto-language & Hinglish support\n"
-                "`pause` / `resume` — Pause or resume playback\n"
-                "`skip` — Skip current track (fetches Autoplay recommendation if queue empty)\n"
-                "`stop` / `leave` — Stop playback, clear queue & leave voice channel\n"
-                "`queue` / `q` — View music queue & loop mode status\n"
-                "`nowplaying` / `np` — Display currently playing track info & control buttons\n"
-                "`autoplay [on/off]` — Toggle automatic playback of recommended songs\n"
-                "`volume <percent>` — Adjust playback volume (owner-only, unrestricted %)\n"
+
+        if cat == "AI Chatbot":
+            embed.title = "🤖 AI Assistant & Image Commands"
+            embed.add_field(
+                name="💬 AI Text Assistant",
+                value=(
+                    "> `ask <prompt>` (alias `ai`) — Query AI assistant *(Gemini & Groq free models)*\n"
+                    "> `clearchat` — Clear AI conversation memory buffer for channel\n"
+                    "> `setaiprovider <engine>` — Switch default AI engine *(gemini|groq|openai)*"
+                ),
+                inline=False
             )
+            embed.add_field(
+                name="🎨 Image Generation",
+                value="> `imagine <prompt>` (alias `draw`) — Generate AI artwork *(Exclusive image output)*",
+                inline=False
+            )
+            embed.add_field(
+                name="📊 Quotas & Channels",
+                value=(
+                    "> `ailimit` (alias `aiusage`) — Check remaining daily questions & images *(10 text / 2 images)*\n"
+                    "> `setaichannel <#channel|reset>` — Lock AI chat to a specific channel"
+                ),
+                inline=False
+            )
+
+        elif cat == "Music & Voice":
+            embed.title = "🎵 Music & Voice Commands"
+            embed.add_field(
+                name="🎶 Playback Controls",
+                value=(
+                    "> `play <query|url>` (alias `p`) — Play a song or YouTube playlist\n"
+                    "> `nowplaying` (alias `np`) — Currently playing track info & control buttons\n"
+                    "> `skip` — Skip current track *(Autoplay next if empty)*\n"
+                    "> `pause` / `resume` / `stop` / `leave` — Control playback & voice connection"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="🎛️ Queue & Sound Settings",
+                value=(
+                    "> `queue` (alias `q`) — View music queue & loop status\n"
+                    "> `volume <percent>` — Adjust playback volume *(0-100%)*\n"
+                    "> `autoplay [on|off]` — Toggle automatic song recommendations"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="🗣️ Voice Speech",
+                value="> `tts say <words>` — Speak audio in VC *(Supports Hinglish & auto-language)*",
+                inline=False
+            )
+
         elif cat == "Utility & Fun":
             embed.title = "🛠️ Utility & Fun Commands"
-            embed.description = (
-                "`steal` / `stealemoji` / `stealsticker` — Steal emojis/stickers from replies or inputs\n"
-                "`gif <query>` — Search & send standalone GIF URL natively\n"
-                "`poll <question> [opt1|opt2]` — Create a yes/no or multiple-choice poll\n"
-                "`remind <duration> <message>` — Set a timed reminder (e.g. `10m`, `2h`)\n"
-                "`calculator <expression>` — Safely evaluate math expressions\n"
-                "`weather <location>` — Check weather forecast for a city\n"
-                "`avatar` / `banner` — View member profile avatar or banner\n"
-                "`userinfo` / `serverinfo` / `roleinfo` / `membercount` — Rich statistical cards\n"
+            embed.add_field(
+                name="✨ Media & Stealing",
+                value=(
+                    "> `steal <emoji|sticker>` — Steal emojis/stickers from replies or inputs\n"
+                    "> `gif <query>` — Search & send native GIFs\n"
+                    "> `avatar` / `banner` — View user profile avatar or banner"
+                ),
+                inline=False
             )
+            embed.add_field(
+                name="📊 Tools & Utilities",
+                value=(
+                    "> `poll <question> [opt1|opt2]` — Create interactive polls\n"
+                    "> `remind <duration> <msg>` — Set a timed reminder *(e.g. 10m, 2h)*\n"
+                    "> `calculator <expression>` (alias `calc`) — Safe math calculator\n"
+                    "> `weather <location>` — Check weather forecast for a city"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="📡 Vanity Checker & Tracker",
+                value=(
+                    "> `checkvanity <code` (alias `vanity`) — Check if a Discord vanity is available or taken\n"
+                    "> `trackvanity <code` — Receive an instant DM alert when a vanity opens up\n"
+                    "> `untrackvanity <code` — Stop tracking a vanity\n"
+                    "> `myvanities` (alias `trackedvanities`) — View your active vanity trackers"
+                ),
+                inline=False
+            )
+
+
         elif cat == "Moderation & Logs":
             embed.title = "🛡️ Moderation & Logging Commands"
-            embed.description = (
-                "`history <user>` — View mod history with interactive section buttons (Mutes, Unmutes, etc.)\n"
-                "`vcmute` / `vcunmute` — Mute or unmute member in voice channels\n"
-                "`mute` / `unmute` / `tempmute` — Text channel mute management\n"
-                "`warn` / `warnings` / `clearwarnings` — Warning tracking\n"
-                "`kick` / `ban` / `unban` — Server member moderation\n"
-                "`purge <amount>` — Bulk delete channel messages\n"
-                "`slowmode <seconds>` — Set channel rate limit\n"
-                "`nickname <user> <nick>` — Manage member nickname\n"
-                "`modlog set-channel` — Configure server moderation logging channel\n"
+            embed.add_field(
+                name="🛡️ Member Moderation",
+                value=(
+                    "> `mute` / `unmute` / `tempmute` — Text channel mute management\n"
+                    "> `vcmute` / `vcunmute` — Voice channel mutes\n"
+                    "> `kick` / `ban` / `unban` — Server member moderation\n"
+                    "> `forcenick <user> <nick>` (alias `fn`) — Force & lock member nickname"
+                ),
+                inline=False
             )
+            embed.add_field(
+                name="🤖 Discord Native AutoMod & Whitelist",
+                value=(
+                    "> `automod config` — View server AutoMod settings & whitelists\n"
+                    "> `automod enable` / `disable` — Toggle AutoMod protection\n"
+                    "> `automod ignore channel/role` — Whitelist channel or role\n"
+                    "> `automod unignore channel/role` — Remove channel/role whitelist\n"
+                    "> `automod ignore show/reset` — View or reset whitelist\n"
+                    "> `automod logging <channel>` — Set AutoMod logging channel\n"
+                    "> `automod punishment <action>` — Set default punishment action\n"
+                    "> `automod list` / `blockwords` / `antispam` / `presets` — Manage rules"
+                ),
+                inline=False
+            )
+
+
+            embed.add_field(
+                name="📜 Logging, Warnings & DM Alerts",
+                value=(
+                    "> `warn <user> [reason]` — Issue warning (auto-escalates: 3rd=2h, 4th=1d, 5th=7d, 6th=14d, 7th=28d timeout, 8th=Kick)\n"
+                    "> `modlog dm [on|off]` — Toggle Direct Message moderation notifications for the server\n"
+                    "> `history <user>` — Interactive mod history card with section buttons\n"
+                    "> `warns <user>` — View member warning history\n"
+                    "> `purge <amount>` (alias `clear`) — Bulk delete channel messages\n"
+                    "> `modlog set-channel` — Configure moderation logging channel"
+                ),
+                inline=False
+            )
+
+
         elif cat == "Economy & Games":
             embed.title = "💵 Economy & Games Commands"
-            embed.description = (
-                "`balance` / `bal` — View wallet & bank balances\n"
-                "`daily` / `work` — Claim daily rewards & work income\n"
-                "`pay <user> <amount>` — Transfer coins to another member\n"
-                "`rob <user>` — Attempt to steal wallet coins from a member\n"
-                "`shop` / `buy <item>` / `inventory` — Item shop & inventory management\n"
-                "`coinflip` / `dice` / `slots` — Casino mini-games\n"
-                "`leaderboard` — Global economy rankings\n"
+            embed.add_field(
+                name="💳 Balance & Accounts",
+                value=(
+                    "> `balance` (alias `bal`) — Wallet & bank balance card\n"
+                    "> `leaderboard` (alias `lb`, `baltop`) — Economy net worth leaderboard\n"
+                    "> `pay <user> <amount>` — Transfer coins to another member"
+                ),
+                inline=False
             )
+            embed.add_field(
+                name="💼 Income & Robbing",
+                value=(
+                    "> `daily` / `work` — Claim daily rewards & work income\n"
+                    "> `rob <user>` — Attempt to steal wallet coins\n"
+                    "> `deposit` / `withdraw` (alias `dep`, `with`) — Bank account management"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="🛍️ Marketplace & Items",
+                value=(
+                    "> `shop` — Browse interactive market with category filters\n"
+                    "> `buy <item_id> [amount]` — Purchase items from the shop\n"
+                    "> `inventory` (alias `inv`) — View owned items & value\n"
+                    "> `use <item_id>` — Consume items *(Energy drink work reset, potions, shields)*"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="🎰 Casino Mini-Games",
+                value="> `coinflip` / `dice` / `slots` — Casino gambling minigames",
+                inline=False
+            )
+
+
         elif cat == "Leveling":
-            embed.title = "⭐ Leveling Commands"
-            embed.description = (
-                "`rank [user]` — View XP rank card & level progress\n"
-                "`levels` / `top` — Guild leveling leaderboard\n"
-                "`togglexp [on/off]` — Enable or disable server XP leveling system\n"
-                "`addxp <user> <amount>` — Award XP to member (owner-only)\n"
-                "`ignorexp <user>` — Toggle XP gain for user (owner-only)\n"
+            embed.title = "⭐ Leveling & Chat XP Commands"
+            embed.add_field(
+                name="⭐ Rank & Leaderboard",
+                value=(
+                    "> `rank` (alias `level`, `lvl`) — Rank card with avatar, Level, XP & progress bar\n"
+                    "> `levels` (alias `toplevels`, `topxp`) — Chat level leaderboard & range selector"
+                ),
+                inline=False
             )
+            embed.add_field(
+                name="⚙️ Leveling Configuration",
+                value=(
+                    "> `setlevelchannel <#ch|reset>` — Level-up announcement channel\n"
+                    "> `ignorexp [target]` — Toggle ignored users/channels or view config\n"
+                    "> `togglexp [on|off]` — Enable/disable server XP leveling system"
+                ),
+                inline=False
+            )
+
         elif cat == "Server & Settings":
             embed.title = "⚙️ Server & Settings Commands"
-            embed.description = (
-                "`prefixless_grant <user>` — Grant user prefixless command execution\n"
-                "`prefixless_revoke <user>` — Revoke user prefixless command execution\n"
-                "`prefixless_list` — List users with prefixless permission\n"
-                "`serverinfo` — Rich server statistics & security details\n"
+            embed.add_field(
+                name="ℹ️ Server & User Cards",
+                value=(
+                    "> `serverinfo` (alias `si`) — Server stats, owner, member breakdown & banner\n"
+                    "> `userinfo` (alias `ui`) — User profile card, booster status & permissions\n"
+                    "> `roleinfo` — Role permissions & member count\n"
+                    "> `membercount` — Total server member breakdown"
+                ),
+                inline=False
             )
+
         elif cat == "Owner Commands":
             embed.title = "👑 Bot Owner Commands"
-            embed.description = (
-                "`server_avatar <url|file|reset>` — Set/reset bot's server avatar PFP\n"
-                "`server_banner <url|file|reset>` — Set/reset bot's server banner\n"
-                "`server_about <text|reset>` — Set/reset bot's server 'About Me' bio\n"
-                "`global_avatar` / `global_banner` — Set/reset bot's global avatar & banner\n"
-                "`restart` — Reboot bot process with nickname confirmation\n"
-                "`sync` — Sync slash/app commands globally or to guild\n"
-                "`presence` / `presence_rotation` — Configure global activity presence\n"
-                "`volume <percent>` — Set voice volume to any unrestricted %\n"
-                "`addmoney` — Add/subtract coins from any wallet\n"
+            embed.add_field(
+                name="👑 Bot Branding & Bio",
+                value=(
+                    "> `server_avatar` / `server_banner` — Set/reset server bot profile\n"
+                    "> `server_about <text|reset>` — Set/reset bot's server 'About Me' bio\n"
+                    "> `global_avatar` / `global_banner` — Set/reset bot's global avatar & banner\n"
+                    "> `prefixless_grant` / `prefixless_revoke` / `prefixless_list` — Manage prefixless command permissions"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="⚡ Management & Debug",
+                value=(
+                    "> `addxp <user> <amount>` — Award XP to member\n"
+                    "> `ignorexp <user>` — Toggle XP gain for user\n"
+                    "> `addmoney` — Add/subtract coins from any wallet\n"
+                    "> `volume <percent>` — Set voice volume to any unrestricted %\n"
+                    "> `restart` — Reboot bot process with nickname confirmation\n"
+                    "> `sync` — Sync slash/app commands globally or to guild\n"
+                    "> `presence` / `presence_rotation` — Configure global activity presence\n"
+                    "> `voice_debug` / `eval` — System diagnostics & Python code evaluation"
+                ),
+                inline=False
             )
 
         owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
@@ -1179,9 +1393,10 @@ class HelpSelect(discord.ui.Select):
 
 
 class HelpView(discord.ui.View):
-    def __init__(self, bot):
+    def __init__(self, bot, is_owner: bool = False):
         super().__init__(timeout=180)
-        self.add_item(HelpSelect(bot))
+        self.add_item(HelpSelect(bot, is_owner=is_owner))
+
 
 
 async def setup(bot: commands.Bot):

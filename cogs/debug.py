@@ -37,7 +37,13 @@ class DebugCog(commands.Cog):
         from utils.config_service import get_guild_config, set_guild_config
         from utils.presence import set_presence
 
+        try:
+            await self.bot.wait_until_ready()
+        except Exception:
+            pass
+
         while True:
+
             try:
                 cfg = await get_guild_config(0)
                 entries = cfg.get("presence_rotation") or []
@@ -185,7 +191,7 @@ class DebugCog(commands.Cog):
         # Re-execute process immediately
         os.execv(sys.executable, [sys.executable] + sys.argv)
 
-    @commands.hybrid_command(name="presence")
+    @commands.command(name="presence")
     @commands.guild_only()
     async def presence(self, ctx: commands.Context, activity_type: str, status: str, *, text: str, streaming_url: str = None):
         """Set custom rich presence (Owner only). Activity: playing, listening, watching, streaming"""
@@ -225,7 +231,7 @@ class DebugCog(commands.Cog):
             logger.exception("Failed to set presence: %s", e)
             await ctx.send("Failed to update bot presence.", ephemeral=True)
 
-    @commands.hybrid_command(name="presence_add")
+    @commands.command(name="presence_add")
     @commands.guild_only()
     async def presence_add(self, ctx: commands.Context, activity_type: str, status: str, *, text: str):
         """Add an entry to the owner-controlled global presence rotation."""
@@ -249,7 +255,7 @@ class DebugCog(commands.Cog):
         await set_guild_config(0, {"presence_rotation": entries})
         await ctx.send(f"Added rotation presence #{len(entries)}: **{status}** | **{activity_type}** `{text}`")
 
-    @commands.hybrid_command(name="presence_rotation")
+    @commands.command(name="presence_rotation")
     @commands.guild_only()
     async def presence_rotation(self, ctx: commands.Context, action: str, interval_seconds: int = None):
         """Manage global presence rotation: start, stop, list, clear, or remove <number>."""
@@ -306,7 +312,7 @@ class DebugCog(commands.Cog):
             return self.bot.guilds[0]
         return None
 
-    @commands.hybrid_command(name="prefixless_grant", aliases=["plgrant", "plallow"])
+    @commands.command(name="prefixless_grant", aliases=["plgrant", "plallow"])
     async def prefixless_grant(self, ctx: commands.Context, user: discord.User, guild_id: Optional[int] = None):
         """Grant a user permission to use prefix-less commands in a server (owner-only)."""
         if not await self._is_owner(ctx.author):
@@ -328,7 +334,7 @@ class DebugCog(commands.Cog):
 
         await ctx.send(f"✅ Granted prefix-less command permission to {user.mention} in **{guild.name}**.")
 
-    @commands.hybrid_command(name="prefixless_revoke", aliases=["plrevoke", "pldeny"])
+    @commands.command(name="prefixless_revoke", aliases=["plrevoke", "pldeny"])
     async def prefixless_revoke(self, ctx: commands.Context, user: discord.User, guild_id: Optional[int] = None):
         """Revoke a user's permission to use prefix-less commands in a server (owner-only)."""
         if not await self._is_owner(ctx.author):
@@ -350,7 +356,7 @@ class DebugCog(commands.Cog):
 
         await ctx.send(f"✅ Revoked prefix-less command permission from {user.mention} in **{guild.name}**.")
 
-    @commands.hybrid_command(name="prefixless_list", aliases=["pllist"])
+    @commands.command(name="prefixless_list", aliases=["pllist"])
     async def prefixless_list(self, ctx: commands.Context, guild_id: Optional[int] = None):
         """List all users with prefix-less command permissions in a server (owner-only)."""
         if not await self._is_owner(ctx.author):
@@ -407,7 +413,7 @@ class DebugCog(commands.Cog):
 
         return None
 
-    @commands.hybrid_command(name="server_avatar", aliases=["setserveravatar", "setserverpfp", "server_pfp"])
+    @commands.command(name="server_avatar", aliases=["setserveravatar", "setserverpfp", "server_pfp"])
     async def server_avatar(self, ctx: commands.Context, image_url: Optional[str] = None, guild_id: Optional[int] = None):
         """Set or reset the bot's server-specific avatar PFP (owner-only). Use 'reset' to clear."""
         if not await self._is_owner(ctx.author):
@@ -442,7 +448,7 @@ class DebugCog(commands.Cog):
             logger.exception("Failed to set server avatar: %s", e)
             await ctx.send(f"❌ Error updating server avatar: {e}", ephemeral=True)
 
-    @commands.hybrid_command(name="server_banner", aliases=["setserverbanner"])
+    @commands.command(name="server_banner", aliases=["setserverbanner"])
     async def server_banner(self, ctx: commands.Context, image_url: Optional[str] = None, guild_id: Optional[int] = None):
         """Set or reset the bot's server-specific banner (owner-only). Use 'reset' to clear."""
         if not await self._is_owner(ctx.author):
@@ -477,7 +483,7 @@ class DebugCog(commands.Cog):
             logger.exception("Failed to set server banner: %s", e)
             await ctx.send(f"❌ Error updating server banner: {e}", ephemeral=True)
 
-    @commands.hybrid_command(name="global_avatar", aliases=["setglobalavatar", "setbotavatar"])
+    @commands.command(name="global_avatar", aliases=["setglobalavatar", "setbotavatar"])
     async def global_avatar(self, ctx: commands.Context, image_url: Optional[str] = None):
         """Set or reset the bot's global account avatar across all servers (owner-only). Use 'reset' to clear."""
         if not await self._is_owner(ctx.author):
@@ -503,7 +509,7 @@ class DebugCog(commands.Cog):
             logger.exception("Failed to set global avatar: %s", e)
             await ctx.send(f"❌ Error updating global avatar: {e}", ephemeral=True)
 
-    @commands.hybrid_command(name="global_banner", aliases=["setglobalbanner", "setbotbanner"])
+    @commands.command(name="global_banner", aliases=["setglobalbanner", "setbotbanner"])
     async def global_banner(self, ctx: commands.Context, image_url: Optional[str] = None):
         """Set or reset the bot's global account banner across all servers (owner-only). Use 'reset' to clear."""
         if not await self._is_owner(ctx.author):
@@ -529,7 +535,7 @@ class DebugCog(commands.Cog):
             logger.exception("Failed to set global banner: %s", e)
             await ctx.send(f"❌ Error updating global banner: {e}", ephemeral=True)
 
-    @commands.hybrid_command(name="server_about", aliases=["setserverabout", "server_bio", "setserverbio"])
+    @commands.command(name="server_about", aliases=["setserverabout", "server_bio", "setserverbio"])
     async def server_about(self, ctx: commands.Context, *, text: Optional[str] = None, guild_id: Optional[int] = None):
         """Set or reset the bot's server-specific 'About Me' bio (owner-only). Use 'reset' to clear."""
         if not await self._is_owner(ctx.author):

@@ -56,19 +56,40 @@ async def test_volume_command_permissions_and_reset(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_help_command_interactive_panel():
+async def test_help_command_interactive_panel(monkeypatch):
     import cogs.utility as utility_cog
 
     async def fake_wait():
         pass
 
-    bot = SN(is_owner=lambda u: False, wait_until_ready=fake_wait, get_command=lambda n: None)
+    async def fake_not_owner(u):
+        return False
+
+    bot = SN(is_owner=fake_not_owner, wait_until_ready=fake_wait, get_command=lambda n: None)
     cog = utility_cog.Utility(bot=bot)
     cog.check_reminders.cancel()
 
-    ctx = FakeCtx()
+    # 1. Normal user help panel (6 options, no Owner Commands)
+    ctx = FakeCtx(author=SN(id=123))
     await cog.help.callback(cog, ctx, command_name=None)
 
-    assert len(ctx.sent) >= 2  # embed and view sent
-    from cogs.utility import HelpView
-    assert any(isinstance(s, HelpView) for s in ctx.sent)
+    assert len(ctx.sent) >= 2
+    from cogs.utility import HelpView, HelpSelect
+    view = next(s for s in ctx.sent if isinstance(s, HelpView))
+    select: HelpSelect = view.children[0]
+    option_labels = [opt.label for opt in select.options]
+    assert "Owner Commands" not in option_labels
+    assert len(option_labels) == 7
+
+    # 2. Owner help panel (8 options, includes Owner Commands)
+    monkeypatch.setenv("OWNER_ID", "999")
+    ctx_owner = FakeCtx(author=SN(id=999))
+    await cog.help.callback(cog, ctx_owner, command_name=None)
+
+    view_owner = next(s for s in ctx_owner.sent if isinstance(s, HelpView))
+    select_owner: HelpSelect = view_owner.children[0]
+    owner_option_labels = [opt.label for opt in select_owner.options]
+    assert "Owner Commands" in owner_option_labels
+    assert len(owner_option_labels) == 8
+
+

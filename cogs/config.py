@@ -23,7 +23,13 @@ class ConfigCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.hybrid_command(name="config_view")
+    @commands.hybrid_group(name="config", invoke_without_command=True)
+    @commands.guild_only()
+    async def config_group(self, ctx: commands.Context):
+        """Guild configuration management"""
+        await ctx.send_help(ctx.command)
+
+    @config_group.command(name="view")
     @commands.guild_only()
     async def config_view(self, ctx: commands.Context):
         """View merged config for the server"""
@@ -31,7 +37,7 @@ class ConfigCog(commands.Cog):
         pretty = json.dumps(cfg, indent=2, ensure_ascii=False)
         await ctx.send(f"Guild config:\n```json\n{pretty}\n```", ephemeral=True)
 
-    @commands.hybrid_command(name="config_set")
+    @config_group.command(name="set")
     @commands.guild_only()
     async def config_set(self, ctx: commands.Context, key: str, value: str):
         """Set a configuration key to a value"""
@@ -53,7 +59,7 @@ class ConfigCog(commands.Cog):
             logger.exception("Failed to set config: %s", exc)
             await ctx.send("Failed to set config.", ephemeral=True)
 
-    @commands.hybrid_command(name="config_reset")
+    @config_group.command(name="reset")
     @commands.guild_only()
     async def config_reset(self, ctx: commands.Context):
         """Reset guild config to defaults"""
@@ -64,8 +70,9 @@ class ConfigCog(commands.Cog):
         await reset_guild_config(ctx.guild.id)
         await ctx.send("Guild config reset to defaults.", ephemeral=True)
 
-    @commands.hybrid_command(name="sync")
+    @commands.command(name="sync")
     async def sync(self, ctx: commands.Context, guild_id: Optional[str] = None):
+
 
         """Sync application commands to this guild (Owner only)."""
         cfg_owner = app_config.get("owner_id")

@@ -127,7 +127,11 @@ class Player:
 
         try:
             while True:
+                if not voice_client or not voice_client.is_connected():
+                    logger.info("Voice client disconnected or uninitialized. Exiting voice loop.")
+                    break
                 track = self.queue.now_playing() or self.queue.dequeue()
+
                 if not track:
                     if ch_id and bot_instance:
                         asyncio.create_task(update_vc_status(bot_instance, ch_id, ""))

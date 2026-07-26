@@ -1,13 +1,25 @@
 # 👑 Owner-Only Commands Reference Guide
 
-This file lists all commands restricted to the **Bot Owner** or **Server Owner** (bypassing normal server administration controls).
+This document provides a comprehensive reference for all commands restricted to the **Bot Owner** or **Server Owner** (bypassing standard permission checks and enabling execution in DMs).
+
+> [!NOTE]
+> All Bot Owner commands work seamlessly in **Direct Messages (DMs)** as well as server channels!
+
+---
+
+## 💻 Bot DM Execution Pipeline
+Bot Owners can execute commands directly in the bot's DMs without triggering `NoPrivateMessage` errors. The following commands support full DM execution:
+- `eval`, `restart`, `sync`, `presence`, `presence_rotation`
+- `global_avatar`, `global_banner`, `server_avatar`, `server_banner`, `server_about`
+- `prefixless_grant`, `prefixless_revoke`, `prefixless_list`
+- `volume`, `voice_debug`, `help`, `np`
 
 ---
 
 ## 💵 Economy Commands
 
 ### `addmoney` / `addbalance`
-- **Description:** Adds or removes coins directly to/from a member's wallet.
+- **Description:** Adds or removes coins directly to/from a member's wallet (Server Owner or Bot Owner only).
 - **Usage:**
   - `addmoney @User 1000` — Adds 1,000 coins to the user's wallet.
   - `addmoney @User -500` — Subtracts 500 coins from the user's wallet.
@@ -15,58 +27,76 @@ This file lists all commands restricted to the **Bot Owner** or **Server Owner**
 
 ---
 
-## ⭐ Leveling Commands
+## ⭐ Leveling & XP Controls
 
 ### `addxp`
-- **Description:** Adds a specified amount of XP to a member. If the XP pushes them past a level threshold, it triggers a level up and awards any configured role rewards.
+- **Description:** Adds a specified amount of XP to a member. Triggers level-up announcements and awards level role rewards if threshold reached.
 - **Usage:**
   - `addxp @User 5000` — Awards 5,000 XP to the user.
 - **Prefix-less support:** Yes.
 
-### `presence_add` and `presence_rotation`
-- **Description:** Builds and runs a global presence rotation. Only the `.env` `OWNER_ID` can use these commands.
-- **Commands:**
-  - `presence_add <activity_type> <status> <text>` — adds an entry.
-  - `presence_rotation start <seconds>` — begins rotation; the minimum duration is 15 seconds.
-  - `presence_rotation stop`, `presence_rotation list`, `presence_rotation remove <number>`, `presence_rotation clear`.
-- **Example:** `presence_add playing online Music and games!`, then `presence_add watching idle your server`, then `presence_rotation start 60`.
-
-### `ignorexp`
-- **Description:** Toggles XP ignored status for a user. If ignored, the bot will not count their messages towards leveling or award them any XP.
+### `ignorexp` / `ignore_xp`
+- **Description:** Toggles ignoring XP gain for a user, a text channel, or server-wide XP leveling (Admins, Server Owners & Bot Owner).
 - **Usage:**
-  - `ignorexp @User` — Stops counting XP for the user (or starts counting it again if they were already ignored).
+  - `ignorexp @User` — Toggle XP gain for specified member.
+  - `ignorexp #channel` — Toggle XP gain in specified text channel.
+  - `ignorexp on` / `off` — Toggle server-wide XP leveling system.
+  - `ignorexp` (no args) — View current leveling configuration summary embed.
+- **Prefix-less support:** Yes.
+
+### `setlevelchannel` / `levelchannel`
+- **Description:** Configures a dedicated channel where level-up notifications will be announced (Admins, Server Owners & Bot Owner).
+- **Usage:**
+  - `setlevelchannel #bot-commands` — Direct level-up messages to `#bot-commands`.
+  - `setlevelchannel current` — Set to current channel.
+  - `setlevelchannel reset` — Reset to default message channel.
 - **Prefix-less support:** Yes.
 
 ---
 
 ## ⚙️ System & Diagnostic Commands
 
+### `eval` / `evaluate`
+- **Description:** Evaluates raw Python code snippets asynchronously in real time (Bot Owner only).
+- **Usage:**
+  - `eval 2 + 2`
+  - `eval return ctx.guild.member_count`
+  - ```py
+    eval
+    import os
+    return os.listdir('.')
+    ```
+- **Prefix-less support:** Yes.
+
 ### `restart`
-- **Description:** Safely restarts the bot. Writes the confirmation message ID to state, restarts the python process, and edits the message to say `🟢 Bot is online!` when it comes back up.
+- **Description:** Safely reboots the bot process. Writes confirmation message ID to state, restarts the Python process, and edits the message to `🟢 Bot is online!` upon reconnect.
 - **Usage:**
   - `restart`
 - **Prefix-less support:** Yes.
 
 ### `sync`
-- **Description:** Forces the bot's application/slash commands to register and sync with the current Discord server or globally.
+- **Description:** Synchronizes application/slash commands with the current server or globally across Discord (works in DMs!).
 - **Usage:**
-  - `/sync` (or `sync`) — Syncs to the current guild.
-  - `!sync [guild_id]` — Syncs to a specific guild ID.
+  - `sync` — Syncs to the current guild.
+  - `sync global` — Syncs all slash commands globally across Discord.
+  - `!sync 123456789` — Syncs to a specific guild ID.
 - **Prefix-less support:** Yes.
 
 ### `voice_debug`
-- **Description:** Runs voice connection diagnostics, checks voice client state, checks if PyNaCl/Opus is loaded, and lists active streams.
+- **Description:** Runs voice connection diagnostics, checks PyNaCl/Opus loading status, voice client state, and active streams.
 - **Usage:**
-  - `voice_debug` (or `!voice_debug`)
+  - `voice_debug`
 - **Prefix-less support:** Yes.
 
-### `presence`
-- **Description:** Customizes the bot's rich presence (activity, status, text, streaming URL). Only the user whose ID is set in `.env` as `OWNER_ID` can use it. Changes are persisted in the settings database (guild 0) and re-applied automatically whenever the bot restarts.
-- **Important:** Discord presence belongs to the bot account and is therefore global. It cannot be different for individual servers, and a server owner cannot be granted a server-only bot-presence permission.
+### `presence` / `presence_rotation`
+- **Description:** Configures global rich presence (activity, status, text, streaming URL) or sets up an automated activity rotation schedule (Bot Owner only).
 - **Usage:**
   - `presence <activity_type> <status> <text> [streaming_url]`
-  - **Activity Types:** `playing`, `streaming`, `listening`, `watching`
-  - **Statuses:** `online`, `idle`, `dnd`, `invisible`
+  - `presence_add <activity_type> <status> <text>`
+  - `presence_rotation start <seconds>` — Rotates presence every N seconds (min 15s).
+  - `presence_rotation stop` / `list` / `clear`
+- **Activity Types:** `playing`, `streaming`, `listening`, `watching`
+- **Statuses:** `online`, `idle`, `dnd`, `invisible`
 - **Examples:**
   - `presence listening online music to relax to`
   - `presence streaming dnd Lofi Beats https://twitch.tv/monstercat`
@@ -77,37 +107,34 @@ This file lists all commands restricted to the **Bot Owner** or **Server Owner**
 ## 🎵 Music Commands
 
 ### `volume` / `vol`
-- **Description:** Sets or displays the bot's voice playback volume to any unrestricted percentage (owner-only).
+- **Description:** Sets or displays voice playback volume. Regular users are capped at 100%, while Bot Owners have unrestricted volume scaling (e.g. 150%, 500%).
 - **Usage:**
-  - `volume` — Displays the current volume percentage.
+  - `volume` — Displays current volume percentage.
   - `volume 150` — Sets volume to 150%.
-  - `volume 5000` — Boosts volume to 5000%.
+  - `volume 500` — Boosts volume to 500%.
 - **Prefix-less support:** Yes.
-
 
 ---
 
 ## ⚙️ Prefix-less Permissions Control
 
 ### `prefixless_grant` / `plgrant` / `plallow`
-- **Description:** Grants a user permission to run prefix-less commands within a specific server (owner-only). Users granted this permission will still be checked for their normal command permissions (e.g. moderators can run mod commands prefixless, while normal members can only run normal commands prefixless).
+- **Description:** Grants a user permission to run prefix-less commands within a specific server (Bot Owner only).
 - **Usage:**
   - `prefixless_grant @User` — Grants permission in the current server.
-  - `prefixless_grant @User 123456789` — Grants permission for server with ID `123456789`.
+  - `prefixless_grant @User 123456789` — Grants permission for server ID `123456789`.
 - **Prefix-less support:** Yes.
 
 ### `prefixless_revoke` / `plrevoke` / `pldeny`
-- **Description:** Revokes a user's permission to run prefix-less commands within a specific server (owner-only).
+- **Description:** Revokes a user's prefix-less command permission within a server (Bot Owner only).
 - **Usage:**
-  - `prefixless_revoke @User` — Revokes permission in the current server.
-  - `prefixless_revoke @User 123456789` — Revokes permission for server with ID `123456789`.
+  - `prefixless_revoke @User`
 - **Prefix-less support:** Yes.
 
 ### `prefixless_list` / `pllist`
-- **Description:** Lists all users who have prefix-less command permissions in a server.
+- **Description:** Lists all users granted prefix-less command permissions in a server.
 - **Usage:**
-  - `prefixless_list` — Lists users in the current server.
-  - `prefixless_list 123456789` — Lists users in server with ID `123456789`.
+  - `prefixless_list`
 - **Prefix-less support:** Yes.
 
 ---
@@ -115,37 +142,32 @@ This file lists all commands restricted to the **Bot Owner** or **Server Owner**
 ## 🖼️ Bot Profile Customization Commands
 
 ### `server_avatar` / `setserveravatar` / `setserverpfp` / `server_pfp`
-- **Description:** Sets or resets the bot's server-specific profile picture (avatar PFP) for a specific server (owner-only).
+- **Description:** Sets or resets the bot's server-specific profile picture (avatar PFP) for a specific server (Bot Owner only, works in DMs!).
 - **Usage:**
   - `server_avatar <image_url> [guild_id]` — Sets server avatar using an image URL.
-  - Attach image with `server_avatar` — Sets server avatar using the attached image file.
-  - `server_avatar reset` — Resets server avatar back to the global bot avatar.
+  - Attach image with `server_avatar` — Sets server avatar using attached file.
+  - `server_avatar reset` — Resets back to global avatar.
 
 ### `server_banner` / `setserverbanner`
-- **Description:** Sets or resets the bot's server-specific profile banner for a specific server (owner-only).
+- **Description:** Sets or resets the bot's server-specific profile banner for a server (Bot Owner only, works in DMs!).
 - **Usage:**
   - `server_banner <image_url> [guild_id]` — Sets server banner using an image URL.
-  - Attach image with `server_banner` — Sets server banner using the attached image file.
-  - `server_banner reset` — Resets server banner back to default.
+  - Attach image with `server_banner` — Sets server banner using attached file.
+  - `server_banner reset` — Resets back to default.
 
 ### `global_avatar` / `setglobalavatar` / `setbotavatar`
-- **Description:** Changes the bot's global account profile picture across all servers (owner-only).
+- **Description:** Changes the bot's global account profile picture across all servers (Bot Owner only).
 - **Usage:**
-  - `global_avatar <image_url>` — Sets global bot avatar using an image URL.
-  - Attach image with `global_avatar` — Sets global bot avatar using attached image file.
-  - `global_avatar reset` — Resets global avatar back to default.
+  - `global_avatar <image_url>` — Sets global avatar URL.
+  - Attach image with `global_avatar` — Sets global avatar attached file.
 
 ### `global_banner` / `setglobalbanner` / `setbotbanner`
-- **Description:** Changes the bot's global account profile banner across all servers (owner-only).
+- **Description:** Changes the bot's global account profile banner across all servers (Bot Owner only).
 - **Usage:**
-  - `global_banner <image_url>` — Sets global bot banner using an image URL.
-  - Attach image with `global_banner` — Sets global bot banner using attached image file.
-  - `global_banner reset` — Resets global banner back to default.
+  - `global_banner <image_url>` — Sets global banner URL.
 
 ### `server_about` / `setserverabout` / `server_bio` / `setserverbio`
-- **Description:** Sets or resets the bot's server-specific "About Me" bio for a server (owner-only).
+- **Description:** Sets or resets the bot's server-specific "About Me" bio for a server (Bot Owner only, works in DMs!).
 - **Usage:**
-  - `server_about <text>` — Sets the bot's server-specific "About Me" bio.
-  - `server_about reset` — Resets the bot's server-specific bio back to default.
-
-
+  - `server_about <text>` — Sets bot's server "About Me" bio.
+  - `server_about reset` — Resets bio back to default.

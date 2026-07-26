@@ -47,10 +47,12 @@ async def play_track_on_voice(voice_client, track, *, loop: asyncio.AbstractEven
     wraps it in a PCMVolumeTransformer, and plays it.
     It returns after playback completes. It does not start any queue logic; the caller should manage the queue.
     """
-    if not voice_client:
-        raise ValueError("voice_client required")
+    if not voice_client or not getattr(voice_client, "is_connected", lambda: True)():
+        logger.warning("Voice client is not connected to any voice channel.")
+        return False
     if not track or not getattr(track, "stream_url", None):
         raise ValueError("track with stream_url required")
+
 
     try:
         import discord

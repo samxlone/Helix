@@ -20,11 +20,12 @@ async def test_shop_buy_and_rob(tmp_path, monkeypatch):
     items = list_items()
     assert any(i['key']=='potion' for i in items)
 
-    # buy potion (50)
+    p_price = get_item('potion')['price']
+    # buy potion
     ok = await buy_item(1, 'potion', 2)
     assert ok
     w, b = await get_balance(1)
-    assert w == 500 - (50*2)
+    assert w == 500 - (p_price * 2)
 
     # attempt buy with insufficient funds
     ok = await buy_item(2, 'sword', 1)
@@ -38,4 +39,5 @@ async def test_shop_buy_and_rob(tmp_path, monkeypatch):
     assert success
     w1, _ = await get_balance(1)
     w2, _ = await get_balance(2)
-    assert w1 + w2 == 500 + 200 - (50*2)  # total money conserved
+    assert w1 + w2 == 500 + 200 - (p_price * 2)  # total money conserved
+

@@ -92,7 +92,8 @@ class Autoplay:
                     track.title = f"{track.title.replace('📻', '').strip()} 📻"
                     return track
         except Exception as e:
-            logger.exception("Autoplay Fallback: Failed to recommend: %s", e)
+            logger.warning("Autoplay Fallback: Failed to recommend: %s", e)
+
             
         return None
 

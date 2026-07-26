@@ -111,6 +111,14 @@ async def do_work(user_id: int, amount: int = 100) -> Tuple[bool, int]:
     return True, w
 
 
+async def reset_work_cooldown(user_id: int):
+    """Clear work cooldown for a user."""
+    async with get_connection() as conn:
+        await conn.execute("DELETE FROM cooldowns WHERE user_id = ? AND key = 'work'", (user_id,))
+        await conn.commit()
+
+
+
 async def deposit_to_bank(user_id: int, amount: int) -> bool:
     """Move from wallet to bank. Returns True on success."""
     if amount <= 0:
@@ -161,7 +169,15 @@ async def rob(attacker_id: int, victim_id: int, *, chance: float = 0.5, min_amou
     if cd and cd > now:
         return False, 0
 
+    # Check if victim has a Robbery Shield in inventory
+    from utils.inventory import remove_item
+    has_shield = await remove_item(victim_id, "shield", 1)
+    if has_shield:
+        await _set_cooldown(attacker_id, "rob", now + timedelta(seconds=ROB_COOLDOWN_SECONDS))
+        return False, -1  # -1 indicates blocked by shield
+
     async with get_connection() as conn:
+
         cur = await conn.execute("SELECT wallet FROM economy WHERE user_id = ?", (victim_id,))
         row = await cur.fetchone()
         await cur.close()
@@ -205,3 +221,46 @@ async def _set_cooldown(user_id: int, key: str, until: datetime):
     async with get_connection() as conn:
         await conn.execute("INSERT OR REPLACE INTO cooldowns (user_id, key, expires_at) VALUES (?, ?, ?)", (user_id, key, until.isoformat()))
         await conn.commit()
+
+
+async def get_networth_leaderboard(limit: int = 100) -> list[dict]:
+    """Fetch top users ordered by (wallet + bank) net worth."""
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            "SELECT user_id, wallet, bank, (wallet + bank) AS networth FROM economy ORDER BY networth DESC LIMIT ?",
+            (int(limit),)
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+        return [
+            {
+                "user_id": int(r["user_id"]),
+                "wallet": int(r["wallet"] or 0),
+                "bank": int(r["bank"] or 0),
+                "networth": int(r["networth"] or 0),
+            }
+            for r in rows
+        ]
+
+
+async def get_user_networth_rank(user_id: int) -> tuple[int, int]:
+    """Return (rank, networth) for a specific user."""
+    await _ensure_user(user_id)
+    async with get_connection() as conn:
+        cur = await conn.execute(
+            """
+            SELECT COUNT(*) + 1 AS rank,
+                   (SELECT (wallet + bank) FROM economy WHERE user_id = ?) AS user_networth
+            FROM economy
+            WHERE (wallet + bank) > (SELECT (wallet + bank) FROM economy WHERE user_id = ?)
+            """,
+            (user_id, user_id)
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row:
+            rank = int(row["rank"] or 1)
+            networth = int(row["user_networth"] or 0)
+            return rank, networth
+        return 1, 0
+

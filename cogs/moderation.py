@@ -37,7 +37,19 @@ def parse_duration(duration_str: str) -> Optional[int]:
     return None
 
 
+def make_trigger_metadata(**kwargs):
+    """Construct AutoMod trigger metadata across discord.py versions."""
+    cls = getattr(discord, "AutoModTriggerMetadata", None) or getattr(discord, "AutoModRuleTrigger", None)
+    if cls:
+        try:
+            return cls(**kwargs)
+        except Exception:
+            pass
+    return kwargs
+
+
 class Moderation(commands.Cog):
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -67,19 +79,38 @@ class Moderation(commands.Cog):
 
     @staticmethod
     def _find_role_by_name(guild: discord.Guild, role_query: str) -> tuple[Optional[discord.Role], Optional[str]]:
-        """Resolve a role mention, ID, or case-insensitive role name in this guild."""
+        """Resolve a role mention, ID, exact case-insensitive role name, or partial role name in this guild."""
         query = role_query.strip()
-        match = re.fullmatch(r"<@&(\d+)>|(\d+)", query)
-        if match:
-            role = guild.get_role(int(match.group(1) or match.group(2)))
-            return role, None if role else "I could not find a role with that ID."
+        if not query:
+            return None, "Please specify a valid role name, mention, or ID."
 
-        matches = [role for role in guild.roles if role.name.casefold() == query.casefold()]
-        if not matches:
-            return None, f"I could not find a role named `{role_query}` in this server."
+        # 1. Mention or direct ID check
+        match = re.search(r"<@&(\d+)>|(\d+)", query)
+        if match:
+            r_id = int(match.group(1) or match.group(2))
+            role = guild.get_role(r_id)
+            if role:
+                return role, None
+
+        clean_query = query.strip("\"'`").strip()
+
+        # 2. Exact case-insensitive match
+        matches = [role for role in guild.roles if role.name.casefold() == clean_query.casefold()]
+        if len(matches) == 1:
+            return matches[0], None
         if len(matches) > 1:
-            return None, "More than one role has that name. Use the role mention or role ID instead."
-        return matches[0], None
+            return None, f"Multiple roles found matching `{role_query}`. Please use a role mention (<@&id>) or role ID."
+
+        # 3. Partial case-insensitive match fallback (e.g. 'admin' -> 'Administrator', 'Admin 👑')
+        partial_matches = [role for role in guild.roles if clean_query.casefold() in role.name.casefold()]
+        if len(partial_matches) == 1:
+            return partial_matches[0], None
+        if len(partial_matches) > 1:
+            matching_names = ", ".join(f"**{r.name}**" for r in partial_matches[:5])
+            return None, f"Multiple roles matched `{role_query}` ({matching_names}). Please specify the exact role name, mention, or ID."
+
+        return None, f"I could not find a role named `{role_query}` in this server."
+
 
     @commands.hybrid_command(name="kick")
     @commands.guild_only()
@@ -148,7 +179,7 @@ class Moderation(commands.Cog):
             logger.exception("Failed to unban: %s", exc)
             await ctx.send(f"❌ Failed to unban {user}.", ephemeral=True)
 
-    @commands.hybrid_command(name="softban")
+    @commands.command(name="softban")
     @commands.guild_only()
     async def softban(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = None, delete_days: Optional[int] = 1):
         """Temporarily ban a member to delete recent messages (ban then unban)"""
@@ -169,7 +200,7 @@ class Moderation(commands.Cog):
             logger.exception("Failed to softban: %s", exc)
             await ctx.send(f"Failed to softban {target}", ephemeral=True)
 
-    @commands.hybrid_command(name="hardban")
+    @commands.command(name="hardban")
     @commands.guild_only()
     async def hardban(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = None, delete_days: Optional[int] = 7):
         """Hard ban a member (ban with maximum message deletion)."""
@@ -212,9 +243,106 @@ class Moderation(commands.Cog):
             logger.exception("Failed to timeout: %s", exc)
             await ctx.send(f"Failed to timeout {target}", ephemeral=True)
 
+    async def _process_warn_escalation(self, ctx_or_guild, target: discord.Member, reason: Optional[str] = None, moderator: Optional[discord.User] = None):
+        """Log a warning, process automated punishment escalation based on DB warn count, and send DM if enabled."""
+        guild = ctx_or_guild if isinstance(ctx_or_guild, discord.Guild) else ctx_or_guild.guild
+        mod_user = moderator or (ctx_or_guild.author if hasattr(ctx_or_guild, "author") else (self.bot.user if self.bot else None))
+        mod_id = mod_user.id if mod_user else 0
+        reason_clean = (reason or "No reason provided. Please follow server rules.").strip()
+
+        # 1. Log warning action to DB
+        case = await log_action(guild.id, mod_id, target.id, "warn", reason_clean)
+
+        # 2. Fetch total warning count for user in this guild
+        warn_logs = await fetch_logs_for_target(guild.id, target.id, action="warn", limit=1000)
+        warn_count = len(warn_logs)
+
+        # 3. Determine escalation tier and upcoming notice
+        escalation_action = None
+        timeout_duration = None
+        upcoming_notice = ""
+
+        if warn_count in (1, 2):
+            upcoming_notice = "⚠️ **Warning Notice**: On your 3rd warning, you will receive a **2-Hour Timeout**."
+        elif warn_count == 3:
+            timeout_duration = timedelta(hours=2)
+            escalation_action = "2-Hour Timeout"
+            upcoming_notice = "⚠️ **Warning Escalation**: On your 4th warning, you will receive a **1-Day Timeout**."
+        elif warn_count == 4:
+            timeout_duration = timedelta(days=1)
+            escalation_action = "1-Day Timeout"
+            upcoming_notice = "⚠️ **Warning Escalation**: On your 5th warning, you will receive a **7-Day Timeout**."
+        elif warn_count == 5:
+            timeout_duration = timedelta(days=7)
+            escalation_action = "7-Day Timeout"
+            upcoming_notice = "⚠️ **Warning Escalation**: On your 6th warning, you will receive a **14-Day Timeout**."
+        elif warn_count == 6:
+            timeout_duration = timedelta(days=14)
+            escalation_action = "14-Day Timeout"
+            upcoming_notice = "⚠️ **Warning Escalation**: On your 7th warning, you will receive a **28-Day Timeout**."
+        elif warn_count == 7:
+            timeout_duration = timedelta(days=28)
+            escalation_action = "28-Day Timeout"
+            upcoming_notice = "🚨 **FINAL WARNING**: On your 8th warning, you will be **KICKED from the server**."
+        elif warn_count >= 8:
+            escalation_action = "Server Kick"
+            upcoming_notice = "🚪 **Server Kick**: You have reached 8 warnings and are being removed from the server."
+
+        # 4. Check DM notification setting for guild (default: True)
+        cfg = await get_guild_config(guild.id)
+        dms_enabled = cfg.get("modlog_dm_notifications", True)
+
+        # 5. Send DM to member if enabled
+        if dms_enabled:
+            try:
+                dm_embed = discord.Embed(
+                    title=f"⚠️ Moderation Notice — {guild.name}",
+                    color=discord.Color.red() if warn_count >= 8 else (discord.Color.orange() if timeout_duration else discord.Color.gold()),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                if guild.icon:
+                    dm_embed.set_thumbnail(url=guild.icon.url)
+
+                action_title = f"Warning #{warn_count}"
+                if escalation_action:
+                    action_title += f" ({escalation_action})"
+
+                dm_embed.add_field(name="Action Issued", value=f"`{action_title}`", inline=True)
+                dm_embed.add_field(name="Total Warnings", value=f"**{warn_count}** warnings", inline=True)
+                dm_embed.add_field(name="Reason", value=f"> {reason_clean}", inline=False)
+
+                if timeout_duration:
+                    until_ts = int((datetime.now(timezone.utc) + timeout_duration).timestamp())
+                    dm_embed.add_field(name="Timeout Expiry", value=f"<t:{until_ts}:F> (<t:{until_ts}:R>)", inline=False)
+
+                if upcoming_notice:
+                    dm_embed.add_field(name="Future Punishment Notice", value=upcoming_notice, inline=False)
+
+                dm_embed.set_footer(text=f"Issued by {mod_user.name if mod_user else 'Server Mod'} • Please follow server rules")
+                await target.send(embed=dm_embed)
+            except Exception as e:
+                logger.warning("Failed to send moderation DM to %s: %s", target.id, e)
+
+        # 6. Apply escalation action in guild
+        if timeout_duration and hasattr(target, "timeout"):
+            try:
+                await target.timeout(timeout_duration, reason=f"Automated Warning Escalation (Warn #{warn_count}): {reason_clean}")
+                await log_action(guild.id, self.bot.user.id if self.bot and self.bot.user else 0, target.id, "timeout", f"Auto-escalation for Warn #{warn_count}")
+            except Exception as exc:
+                logger.warning("Failed to apply auto-timeout escalation to %s: %s", target.id, exc)
+
+        elif warn_count >= 8 and hasattr(target, "kick"):
+            try:
+                await target.kick(reason=f"Automated Warning Escalation (Warn #{warn_count}): {reason_clean}")
+                await log_action(guild.id, self.bot.user.id if self.bot and self.bot.user else 0, target.id, "kick", f"Auto-kick for Warn #{warn_count}")
+            except Exception as exc:
+                logger.warning("Failed to apply auto-kick escalation to %s: %s", target.id, exc)
+
+        return case, warn_count, escalation_action
+
     @commands.hybrid_command(name="warn")
     @commands.guild_only()
-    async def warn(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = "No reason provided"):
+    async def warn(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = "No reason provided. Please follow server rules."):
         """Warn a member"""
         if not (ctx.author.guild_permissions.kick_members or ctx.author.guild_permissions.manage_messages):
             await ctx.send("You don't have permission to warn members.", ephemeral=True)
@@ -226,16 +354,18 @@ class Moderation(commands.Cog):
             return
 
         try:
-            case = await log_action(ctx.guild.id, ctx.author.id, target.id, "warn", reason)
-            try:
-                await target.send(f"You have been warned in {ctx.guild.name}: {reason}")
-            except Exception:
-                pass
-            await ctx.send(f"Warned {target} ({target.id})")
-            await self._post_modlog(ctx.guild, case, "Warn", ctx.author, target, reason)
+            case, warn_count, escalation_action = await self._process_warn_escalation(ctx, target, reason, moderator=ctx.author)
+
+            msg = f"⚠️ Warned {target.mention} (`ID: {target.id}`). **Warning #{warn_count}**."
+            if escalation_action:
+                msg += f"\n🔨 **Automated Escalation**: Applied **{escalation_action}**."
+
+            await ctx.send(msg)
+            await self._post_modlog(ctx.guild, case, "Warn", ctx.author, target, f"Warn #{warn_count} | Reason: {reason}")
         except Exception as exc:
             logger.exception("Failed to warn: %s", exc)
             await ctx.send("Failed to warn member.", ephemeral=True)
+
 
     @commands.hybrid_command(name="warns")
     @commands.guild_only()
@@ -378,43 +508,82 @@ class Moderation(commands.Cog):
             logger.exception("Failed to purge messages: %s", exc)
             await ctx.send("Failed to purge messages.", ephemeral=True)
 
-    @commands.hybrid_command(name="giverole", aliases=["role", "addrole"])
+    @commands.hybrid_command(name="giverole", aliases=["role", "addrole", "removerole"])
     @commands.guild_only()
-    async def giverole(self, ctx: commands.Context, target: discord.Member, *, role_name: str):
+    async def giverole(self, ctx: commands.Context, target: Optional[discord.Member] = None, *, role_name: Optional[str] = None):
         """Toggle a role for a member. If they have it, removes it; otherwise adds it."""
-        if not ctx.author.guild_permissions.manage_roles:
-            await ctx.send("You need the **Manage Roles** permission to modify roles.", ephemeral=True)
+        if not ctx.author.guild_permissions.manage_roles and not ctx.author.guild_permissions.administrator:
+            is_owner = await self.bot.is_owner(ctx.author)
+            if not is_owner:
+                await ctx.send("❌ You need the **Manage Roles** permission to modify roles.", ephemeral=True)
+                return
+
+        member_target: Optional[discord.Member] = target
+        query: Optional[str] = role_name
+
+        if ctx.message and ctx.message.content:
+            raw_args = ctx.message.content.strip().split()[1:]
+            if raw_args:
+                found_member = None
+                remaining_tokens = list(raw_args)
+                for idx, token in enumerate(raw_args):
+                    match = re.search(r"\d+", token)
+                    if match:
+                        m_id = int(match.group(0))
+                        m = ctx.guild.get_member(m_id)
+                        if m:
+                            found_member = m
+                            remaining_tokens.pop(idx)
+                            break
+                if found_member:
+                    member_target = found_member
+                    query = " ".join(remaining_tokens).strip()
+                elif member_target is None and len(raw_args) >= 2:
+                    try:
+                        converter = commands.MemberConverter()
+                        member_target = await converter.convert(ctx, raw_args[0])
+                        query = " ".join(raw_args[1:]).strip()
+                    except Exception:
+                        pass
+
+        if not member_target:
+            await ctx.send("❌ Could not resolve the target member. Usage: `!role @User RoleName` or `!role <User_ID> <Role_Name>`", ephemeral=True)
             return
 
-        role, error = self._find_role_by_name(ctx.guild, role_name)
+        if not query:
+            await ctx.send("❌ Please specify a role name, mention, or ID. Usage: `!role @User RoleName`", ephemeral=True)
+            return
+
+        role, error = self._find_role_by_name(ctx.guild, query)
         if error:
-            await ctx.send(error, ephemeral=True)
+            await ctx.send(f"❌ {error}", ephemeral=True)
             return
 
         bot_member = ctx.guild.me or ctx.guild.get_member(self.bot.user.id)
         deny = self._role_assignment_error(ctx.guild, ctx.author, bot_member, role)
         if deny:
-            await ctx.send(deny, ephemeral=True)
+            await ctx.send(f"❌ {deny}", ephemeral=True)
             return
 
-        if role in target.roles:
+        if role in member_target.roles:
             try:
-                await target.remove_roles(role, reason=f"Removed by {ctx.author} ({ctx.author.id})")
-                case = await log_action(ctx.guild.id, ctx.author.id, target.id, "role_remove", role.name)
-                await ctx.send(f"Removed role **{role.name}** from {target}.")
-                await self._post_modlog(ctx.guild, case, "Role Remove", ctx.author, target, role.name)
+                await member_target.remove_roles(role, reason=f"Removed by {ctx.author} ({ctx.author.id})")
+                case = await log_action(ctx.guild.id, ctx.author.id, member_target.id, "role_remove", role.name)
+                await ctx.send(f"Removed role **{role.name}** from {member_target.mention}.")
+                await self._post_modlog(ctx.guild, case, "Role Remove", ctx.author, member_target, role.name)
             except Exception as exc:
                 logger.exception("Failed to remove role: %s", exc)
-                await ctx.send("Failed to remove role.", ephemeral=True)
+                await ctx.send("❌ Failed to remove role.", ephemeral=True)
         else:
             try:
-                await target.add_roles(role, reason=f"Assigned by {ctx.author} ({ctx.author.id})")
-                case = await log_action(ctx.guild.id, ctx.author.id, target.id, "role_add", role.name)
-                await ctx.send(f"Added role **{role.name}** to {target}.")
-                await self._post_modlog(ctx.guild, case, "Role Add", ctx.author, target, role.name)
+                await member_target.add_roles(role, reason=f"Assigned by {ctx.author} ({ctx.author.id})")
+                case = await log_action(ctx.guild.id, ctx.author.id, member_target.id, "role_add", role.name)
+                await ctx.send(f"Added role **{role.name}** to {member_target.mention}.")
+                await self._post_modlog(ctx.guild, case, "Role Add", ctx.author, member_target, role.name)
             except Exception as exc:
                 logger.exception("Failed to add role: %s", exc)
-                await ctx.send("Failed to add role.", ephemeral=True)
+                await ctx.send("❌ Failed to add role.", ephemeral=True)
+
 
     @commands.hybrid_command(name="nick", aliases=["n", "setnick", "setnickname", "nickname"])
     @commands.guild_only()
@@ -481,7 +650,7 @@ class Moderation(commands.Cog):
     @commands.hybrid_command(name="forcenick", aliases=["fn", "locknick", "force_nick", "locknickname", "force_nickname"])
     @commands.guild_only()
     async def forcenick(self, ctx: commands.Context, target: discord.Member, *, nickname: Optional[str] = None):
-        """Force a member's nickname and lock it so they cannot change it. Use 'reset', 'off', or 'clear' to unlock."""
+        """Force and lock a member's nickname. Use 'reset' to unlock."""
         if not ctx.guild:
             return
 
@@ -684,6 +853,36 @@ class Moderation(commands.Cog):
             logger.exception("Failed to clear mod-log channel: %s", exc)
             await ctx.send("Failed to clear mod-log channel.", ephemeral=True)
 
+    @modlog_group.command(name="dm")
+    @commands.guild_only()
+    async def modlog_dm(self, ctx: commands.Context, state: Optional[str] = None):
+        """Toggle or view Direct Message notifications for moderation actions in this server."""
+        if not ctx.author.guild_permissions.manage_guild and not ctx.author.guild_permissions.administrator:
+            await ctx.send("You don't have permission to configure moderation DM notifications.", ephemeral=True)
+            return
+
+        cfg = await get_guild_config(ctx.guild.id)
+        current = cfg.get("modlog_dm_notifications", True)
+
+        if state is None:
+            status_str = "🟢 **Enabled**" if current else "🔴 **Disabled**"
+            await ctx.send(f"📬 Direct Message moderation alerts are currently {status_str} in **{ctx.guild.name}**.")
+            return
+
+        state_clean = state.lower().strip()
+        if state_clean in ["on", "enable", "true", "yes", "1"]:
+            new_val = True
+        elif state_clean in ["off", "disable", "false", "no", "0"]:
+            new_val = False
+        else:
+            await ctx.send("❌ Invalid option. Use `!modlog dm on` or `!modlog dm off`.", ephemeral=True)
+            return
+
+        await set_guild_config(ctx.guild.id, {"modlog_dm_notifications": new_val})
+        status_str = "🟢 **Enabled**" if new_val else "🔴 **Disabled**"
+        await ctx.send(f"✅ Direct Message moderation alerts are now {status_str} for **{ctx.guild.name}**.")
+
+
     async def _post_modlog(self, guild: discord.Guild, case_id: int, action: str, moderator: discord.abc.User, target, reason: Optional[str]):
         """Post a mod action embed to the configured mod log channel for the guild, if set."""
         try:
@@ -722,7 +921,7 @@ class Moderation(commands.Cog):
         except Exception:
             logger.exception("Failed to post mod log embed for guild %s", guild.id)
 
-    @commands.hybrid_command(name="vcmute")
+    @commands.command(name="vcmute")
     @commands.guild_only()
     async def vcmute(self, ctx: commands.Context, target: discord.Member, duration: Optional[str] = None, *, reason: Optional[str] = "No reason provided"):
         """Mute a member in voice channel for a duration (e.g. 5m, 10s, 2h) or indefinitely."""
@@ -764,7 +963,7 @@ class Moderation(commands.Cog):
             logger.exception("Failed to vcmute: %s", exc)
             await ctx.send(f"❌ Failed to server-mute {target.mention} in voice channel.", ephemeral=True)
 
-    @commands.hybrid_command(name="vcunmute")
+    @commands.command(name="vcunmute")
     @commands.guild_only()
     async def vcunmute(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = "No reason provided"):
         """Unmute a server-muted member in voice channel."""
@@ -826,6 +1025,542 @@ class Moderation(commands.Cog):
         except Exception as exc:
             logger.exception("Failed to fetch history: %s", exc)
             await ctx.send("❌ Failed to fetch moderation history.", ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_automod_action(self, execution: discord.AutoModExecution):
+        """Fires when Discord's Native AutoMod executes an action (e.g. blocks a message, timeouts a member)."""
+        guild = execution.guild
+        if not guild:
+            return
+
+        cfg = await get_guild_config(guild.id)
+        if not cfg.get("automod_enabled", True):
+            return
+
+        user_id = execution.user_id
+        member = execution.member or guild.get_member(user_id)
+
+        # Check channel whitelist
+        ignored_channels = cfg.get("automod_ignored_channels", [])
+        if execution.channel_id and execution.channel_id in ignored_channels:
+            return
+
+        # Check role whitelist
+        ignored_roles = cfg.get("automod_ignored_roles", [])
+        if member and hasattr(member, "roles"):
+            if any(r.id in ignored_roles for r in member.roles):
+                return
+
+        modlog_channel_id = cfg.get("automod_log_channel_id") or cfg.get("modlog_channel_id")
+        if not modlog_channel_id:
+            return
+
+        channel = guild.get_channel(int(modlog_channel_id))
+        if not channel:
+            return
+
+        user_text = member.mention if member else f"<@{user_id}>"
+
+        embed = discord.Embed(
+            title="🛡️ Native AutoMod Action Triggered",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        if member and hasattr(member, "display_avatar"):
+            embed.set_thumbnail(url=member.display_avatar.url)
+
+        embed.add_field(name="User", value=f"{user_text} (`ID: {user_id}`)", inline=True)
+        if execution.channel:
+            embed.add_field(name="Channel", value=execution.channel.mention, inline=True)
+        if execution.rule_id:
+            embed.add_field(name="Rule ID", value=f"`{execution.rule_id}`", inline=True)
+
+        if execution.matched_keyword:
+            embed.add_field(name="Matched Keyword", value=f"`{execution.matched_keyword}`", inline=False)
+        if execution.matched_content:
+            embed.add_field(name="Matched Content", value=f"`{execution.matched_content[:500]}`", inline=False)
+        elif execution.content:
+            embed.add_field(name="Blocked Message", value=f"```{execution.content[:500]}```", inline=False)
+
+        action_type = str(execution.action.type).split(".")[-1] if execution.action else "Blocked"
+        embed.set_footer(text=f"AutoMod Action: {action_type} • Guild: {guild.name}")
+
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            logger.warning("Failed to send automod action log to channel %s: %s", modlog_channel_id, e)
+
+        # Log into SQLite DB
+        try:
+            await log_action(
+                guild_id=guild.id,
+                moderator_id=self.bot.user.id if self.bot.user else 0,
+                target_id=user_id,
+                action="AUTOMOD_BLOCK",
+                reason=f"Matched keyword '{execution.matched_keyword or 'filter'}' in channel {execution.channel}"
+            )
+        except Exception as exc:
+            logger.warning("Failed to log automod action into db: %s", exc)
+
+    @commands.group(name="automod", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod(self, ctx: commands.Context):
+        """Manage Discord Native AutoMod rules and configuration for this server."""
+        await ctx.send_help(ctx.command)
+
+    async def automod_config_impl(self, ctx: commands.Context):
+        """View current AutoMod settings for this server."""
+        cfg = await get_guild_config(ctx.guild.id)
+        enabled = cfg.get("automod_enabled", True)
+        log_ch_id = cfg.get("automod_log_channel_id") or cfg.get("modlog_channel_id")
+        log_ch_str = f"<#{log_ch_id}>" if log_ch_id else "*Not configured*"
+        punishment = cfg.get("automod_punishment", "Block Message")
+
+        ignored_ch_ids = cfg.get("automod_ignored_channels", [])
+        ignored_ch_str = ", ".join([f"<#{cid}>" for cid in ignored_ch_ids]) if ignored_ch_ids else "*None*"
+
+        ignored_role_ids = cfg.get("automod_ignored_roles", [])
+        ignored_role_str = ", ".join([f"<@&{rid}>" for rid in ignored_role_ids]) if ignored_role_ids else "*None*"
+
+        status_str = "🟢 **Enabled**" if enabled else "🔴 **Disabled**"
+
+        embed = discord.Embed(
+            title=f"⚙️ AutoMod Configuration — {ctx.guild.name}",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="AutoMod Status", value=status_str, inline=True)
+        embed.add_field(name="Logging Channel", value=log_ch_str, inline=True)
+        embed.add_field(name="Default Punishment", value=f"`{punishment}`", inline=True)
+        embed.add_field(name="Whitelisted Channels", value=ignored_ch_str, inline=False)
+        embed.add_field(name="Whitelisted Roles", value=ignored_role_str, inline=False)
+
+        embed.set_footer(text="Use !automod enable/disable, !automod ignore, or !automod punishment to modify settings")
+        await ctx.send(embed=embed)
+
+    @automod.command(name="config")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_config(self, ctx: commands.Context):
+        await self.automod_config_impl(ctx)
+
+    async def automod_enable_impl(self, ctx: commands.Context):
+        """Enable AutoMod on this server."""
+        await set_guild_config(ctx.guild.id, {"automod_enabled": True})
+        embed = discord.Embed(
+            title="🟢 AutoMod Enabled",
+            description="AutoMod protection is now **active** on this server.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    @automod.command(name="enable")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_enable(self, ctx: commands.Context):
+        await self.automod_enable_impl(ctx)
+
+    async def automod_disable_impl(self, ctx: commands.Context):
+        """Disable AutoMod on this server."""
+        await set_guild_config(ctx.guild.id, {"automod_enabled": False})
+        embed = discord.Embed(
+            title="🔴 AutoMod Disabled",
+            description="AutoMod protection has been **disabled** for this server.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+    @automod.command(name="disable")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_disable(self, ctx: commands.Context):
+        await self.automod_disable_impl(ctx)
+
+    @automod.command(name="dm")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_dm(self, ctx: commands.Context, state: Optional[str] = None):
+        """Toggle Direct Message notifications for AutoMod & moderation actions."""
+        await self.modlog_dm(ctx, state=state)
+
+
+    async def automod_logging_impl(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Set the logging channel for AutoMod events."""
+        await set_guild_config(ctx.guild.id, {"automod_log_channel_id": channel.id})
+        embed = discord.Embed(
+            title="📜 AutoMod Logging Channel Updated",
+            description=f"AutoMod enforcement logs will now be sent to {channel.mention}.",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+
+    @automod.command(name="logging")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_logging(self, ctx: commands.Context, channel: discord.TextChannel):
+        await self.automod_logging_impl(ctx, channel)
+
+    async def automod_punishment_impl(self, ctx: commands.Context, action: str):
+        """Set default punishment for AutoMod events."""
+        action_clean = action.lower().strip()
+        valid_actions = {
+            "block": "Block Message",
+            "alert": "Send Alert to ModLog",
+            "timeout_1m": "Timeout 1 Minute",
+            "timeout_5m": "Timeout 5 Minutes",
+            "timeout_1h": "Timeout 1 Hour",
+            "kick": "Kick User",
+            "ban": "Ban User"
+        }
+        if action_clean not in valid_actions:
+            valid_keys = ", ".join([f"`{k}`" for k in valid_actions.keys()])
+            await ctx.send(f"❌ Invalid punishment action. Valid options: {valid_keys}", ephemeral=True)
+            return
+
+        label = valid_actions[action_clean]
+        await set_guild_config(ctx.guild.id, {"automod_punishment": label})
+        embed = discord.Embed(
+            title="🔨 AutoMod Punishment Updated",
+            description=f"Default AutoMod punishment set to **{label}**.",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+
+    @automod.command(name="punishment")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_punishment(self, ctx: commands.Context, *, action: str):
+        await self.automod_punishment_impl(ctx, action)
+
+    @automod.group(name="ignore", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_ignore(self, ctx: commands.Context):
+        """Manage AutoMod whitelist (channels & roles)."""
+        await self.automod_ignore_show_impl(ctx)
+
+    async def automod_ignore_channel_impl(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Add a channel to the AutoMod whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        channels = cfg.get("automod_ignored_channels", [])
+        if channel.id not in channels:
+            channels.append(channel.id)
+            await set_guild_config(ctx.guild.id, {"automod_ignored_channels": channels})
+        embed = discord.Embed(
+            title="🛡️ Channel Whitelisted",
+            description=f"{channel.mention} added to AutoMod whitelist.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    @automod_ignore.command(name="channel")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_ignore_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+        await self.automod_ignore_channel_impl(ctx, channel)
+
+    async def automod_ignore_role_impl(self, ctx: commands.Context, role: discord.Role):
+        """Add a role to the AutoMod whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        roles = cfg.get("automod_ignored_roles", [])
+        if role.id not in roles:
+            roles.append(role.id)
+            await set_guild_config(ctx.guild.id, {"automod_ignored_roles": roles})
+        embed = discord.Embed(
+            title="🛡️ Role Whitelisted",
+            description=f"{role.mention} added to AutoMod whitelist.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    @automod_ignore.command(name="role")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_ignore_role(self, ctx: commands.Context, role: discord.Role):
+        await self.automod_ignore_role_impl(ctx, role)
+
+    async def automod_ignore_show_impl(self, ctx: commands.Context):
+        """Show whitelisted channels and roles."""
+        cfg = await get_guild_config(ctx.guild.id)
+        ch_ids = cfg.get("automod_ignored_channels", [])
+        role_ids = cfg.get("automod_ignored_roles", [])
+
+        ch_str = ", ".join([f"<#{cid}>" for cid in ch_ids]) if ch_ids else "*None*"
+        role_str = ", ".join([f"<@&{rid}>" for rid in role_ids]) if role_ids else "*None*"
+
+        embed = discord.Embed(
+            title=f"🛡️ AutoMod Whitelist — {ctx.guild.name}",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="Whitelisted Channels", value=ch_str, inline=False)
+        embed.add_field(name="Whitelisted Roles", value=role_str, inline=False)
+        await ctx.send(embed=embed)
+
+    @automod_ignore.command(name="show")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_ignore_show(self, ctx: commands.Context):
+        await self.automod_ignore_show_impl(ctx)
+
+    async def automod_ignore_reset_impl(self, ctx: commands.Context):
+        """Reset the AutoMod whitelist."""
+        await set_guild_config(ctx.guild.id, {"automod_ignored_channels": [], "automod_ignored_roles": []})
+        embed = discord.Embed(
+            title="🔄 AutoMod Whitelist Reset",
+            description="All whitelisted channels and roles have been cleared.",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+
+    @automod_ignore.command(name="reset")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_ignore_reset(self, ctx: commands.Context):
+        await self.automod_ignore_reset_impl(ctx)
+
+    @automod.group(name="unignore", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_unignore(self, ctx: commands.Context):
+        """Remove channels or roles from AutoMod whitelist."""
+        await ctx.send_help(ctx.command)
+
+    async def automod_unignore_channel_impl(self, ctx: commands.Context, channel: discord.TextChannel):
+        """Remove a channel from the AutoMod whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        channels = cfg.get("automod_ignored_channels", [])
+        if channel.id in channels:
+            channels.remove(channel.id)
+            await set_guild_config(ctx.guild.id, {"automod_ignored_channels": channels})
+        embed = discord.Embed(
+            title="✅ Channel Removed from Whitelist",
+            description=f"{channel.mention} is no longer whitelisted.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    @automod_unignore.command(name="channel")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_unignore_channel(self, ctx: commands.Context, channel: discord.TextChannel):
+        await self.automod_unignore_channel_impl(ctx, channel)
+
+    async def automod_unignore_role_impl(self, ctx: commands.Context, role: discord.Role):
+        """Remove a role from the AutoMod whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        roles = cfg.get("automod_ignored_roles", [])
+        if role.id in roles:
+            roles.remove(role.id)
+            await set_guild_config(ctx.guild.id, {"automod_ignored_roles": roles})
+        embed = discord.Embed(
+            title="✅ Role Removed from Whitelist",
+            description=f"{role.mention} is no longer whitelisted.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    @automod_unignore.command(name="role")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_unignore_role(self, ctx: commands.Context, role: discord.Role):
+        await self.automod_unignore_role_impl(ctx, role)
+
+
+    async def automod_list_impl(self, ctx: commands.Context):
+        """List all active native Discord AutoMod rules in this server."""
+        try:
+            rules = await ctx.guild.fetch_automod_rules()
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to fetch AutoMod rules: {e.text or e}", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=f"🛡️ Native AutoMod Rules — {ctx.guild.name}",
+            color=discord.Color.blurple()
+        )
+
+        if not rules:
+            embed.description = "No native AutoMod rules are currently configured for this server.\nUse `!automod blockwords`, `!automod antispam`, or `!automod presets` to create one!"
+        else:
+            lines = []
+            for r in rules:
+                status = "🟢 Enabled" if r.enabled else "🔴 Disabled"
+                trigger_name = str(r.trigger_type).split(".")[-1]
+                lines.append(f"• **{r.name}** (`ID: {r.id}`)\n  Status: {status} | Trigger: `{trigger_name}`")
+            embed.description = f"Configured Rules (**{len(rules)}**):\n\n" + "\n\n".join(lines)
+
+        embed.set_footer(text="Use !automod toggle <rule_id> or !automod delete <rule_id> to manage rules")
+        await ctx.send(embed=embed)
+
+    @automod.command(name="list")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_list(self, ctx: commands.Context):
+        await self.automod_list_impl(ctx)
+
+    async def automod_blockwords_impl(self, ctx: commands.Context, rule_name: str, words: str):
+        """Create a native Discord AutoMod rule to block specific words/phrases (comma-separated)."""
+        word_list = [w.strip() for w in words.split(",") if w.strip()]
+        if not word_list:
+            await ctx.send("❌ Please provide at least one word to block (e.g. `!automod blockwords BadWords filter1, filter2`).", ephemeral=True)
+            return
+
+        try:
+            rule = await ctx.guild.create_automod_rule(
+                name=rule_name[:100],
+                event_type=discord.AutoModRuleEventType.message_send,
+                trigger_type=discord.AutoModRuleTriggerType.keyword,
+                trigger_metadata=make_trigger_metadata(keyword_filter=word_list[:1000]),
+                actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.block_message)],
+                enabled=True,
+                reason=f"Created by {ctx.author}"
+            )
+
+            embed = discord.Embed(
+                title="✅ Native AutoMod Rule Created!",
+                description=f"Rule **{rule.name}** (`ID: {rule.id}`) is active!\nIt will automatically block messages containing **{len(word_list)}** forbidden keywords.",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to create AutoMod rule: {e.text or e}", ephemeral=True)
+
+    @automod.command(name="blockwords")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_blockwords(self, ctx: commands.Context, rule_name: str, *, words: str):
+        await self.automod_blockwords_impl(ctx, rule_name, words)
+
+    async def automod_antispam_impl(self, ctx: commands.Context):
+        """Enable Discord's native AutoMod anti-spam rule."""
+        try:
+            rule = await ctx.guild.create_automod_rule(
+                name="Helix Anti-Spam",
+                event_type=discord.AutoModRuleEventType.message_send,
+                trigger_type=discord.AutoModRuleTriggerType.spam,
+                actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.block_message)],
+                enabled=True,
+                reason=f"Created by {ctx.author}"
+            )
+            embed = discord.Embed(
+                title="✅ Native Anti-Spam Rule Enabled!",
+                description=f"Rule **{rule.name}** (`ID: {rule.id}`) is active!\nDiscord will automatically block spam messages from being posted in your server.",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to enable Anti-Spam: {e.text or e}", ephemeral=True)
+
+    @automod.command(name="antispam")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_antispam(self, ctx: commands.Context):
+        await self.automod_antispam_impl(ctx)
+
+    async def automod_antimention_impl(self, ctx: commands.Context, max_mentions: int = 5):
+        """Enable Discord's native mention spam filter rule."""
+        if max_mentions < 1 or max_mentions > 50:
+            await ctx.send("❌ Max mentions must be between 1 and 50.", ephemeral=True)
+            return
+
+        try:
+            rule = await ctx.guild.create_automod_rule(
+                name=f"Helix Mention Filter (Max {max_mentions})",
+                event_type=discord.AutoModRuleEventType.message_send,
+                trigger_type=discord.AutoModRuleTriggerType.mention_spam,
+                trigger_metadata=make_trigger_metadata(mention_total_limit=max_mentions),
+                actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.block_message)],
+                enabled=True,
+                reason=f"Created by {ctx.author}"
+            )
+            embed = discord.Embed(
+                title="✅ Native Mention Filter Enabled!",
+                description=f"Rule **{rule.name}** (`ID: {rule.id}`) is active!\nMessages exceeding **{max_mentions} mentions** will automatically be blocked.",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to enable Mention Filter: {e.text or e}", ephemeral=True)
+
+    @automod.command(name="antimention")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_antimention(self, ctx: commands.Context, max_mentions: int = 5):
+        await self.automod_antimention_impl(ctx, max_mentions)
+
+    async def automod_presets_impl(self, ctx: commands.Context):
+        """Enable Discord's native profanity & slurs preset filters."""
+        try:
+            rule = await ctx.guild.create_automod_rule(
+                name="Helix Presets Filter",
+                event_type=discord.AutoModRuleEventType.message_send,
+                trigger_type=discord.AutoModRuleTriggerType.keyword_preset,
+                trigger_metadata=make_trigger_metadata(
+                    presets=[
+                        discord.AutoModPresetType.profanity,
+                        discord.AutoModPresetType.slurs,
+                        discord.AutoModPresetType.sexual_content
+                    ]
+                ),
+                actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.block_message)],
+                enabled=True,
+                reason=f"Created by {ctx.author}"
+            )
+            embed = discord.Embed(
+                title="✅ Native Preset Filters Enabled!",
+                description=f"Rule **{rule.name}** (`ID: {rule.id}`) is active!\nProfanity, slurs, and explicit content will be automatically blocked.",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to enable Preset Filters: {e.text or e}", ephemeral=True)
+
+    @automod.command(name="presets")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_presets(self, ctx: commands.Context):
+        await self.automod_presets_impl(ctx)
+
+    async def automod_delete_impl(self, ctx: commands.Context, rule_id: int):
+        """Delete a native Discord AutoMod rule by ID."""
+        try:
+            rules = await ctx.guild.fetch_automod_rules()
+            target_rule = next((r for r in rules if r.id == rule_id), None)
+            if not target_rule:
+                await ctx.send(f"❌ Rule ID `{rule_id}` not found on this server.", ephemeral=True)
+                return
+            await target_rule.delete(reason=f"Deleted by {ctx.author}")
+            await ctx.send(f"✅ AutoMod rule **{target_rule.name}** (`ID: {rule_id}`) deleted successfully.")
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to delete rule: {e.text or e}", ephemeral=True)
+
+    @automod.command(name="delete")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_delete(self, ctx: commands.Context, rule_id: int):
+        await self.automod_delete_impl(ctx, rule_id)
+
+    async def automod_toggle_impl(self, ctx: commands.Context, rule_id: int):
+        """Enable or disable a native Discord AutoMod rule by ID."""
+        try:
+            rules = await ctx.guild.fetch_automod_rules()
+            target_rule = next((r for r in rules if r.id == rule_id), None)
+            if not target_rule:
+                await ctx.send(f"❌ Rule ID `{rule_id}` not found on this server.", ephemeral=True)
+                return
+            new_state = not target_rule.enabled
+            await target_rule.edit(enabled=new_state, reason=f"Toggled by {ctx.author}")
+            state_text = "🟢 Enabled" if new_state else "🔴 Disabled"
+            await ctx.send(f"✅ AutoMod rule **{target_rule.name}** (`ID: {rule_id}`) is now {state_text}.")
+        except discord.HTTPException as e:
+            await ctx.send(f"❌ Failed to toggle rule: {e.text or e}", ephemeral=True)
+
+    @automod.command(name="toggle")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_toggle(self, ctx: commands.Context, rule_id: int):
+        await self.automod_toggle_impl(ctx, rule_id)
+
 
 
 class HistorySelect(discord.ui.Select):
@@ -982,5 +1717,7 @@ class HistorySelectView(discord.ui.View):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
+
+
 
 

@@ -212,3 +212,25 @@ async def test_vcmute_and_history(tmp_path, monkeypatch):
     assert "Moderation History" in embed.title
     assert "WARN" in embed.description
     assert "VCMUTE" in embed.description
+
+
+@pytest.mark.asyncio
+async def test_partial_role_matching():
+    guild = SimpleNamespace(
+        id=1,
+        roles=[
+            SimpleNamespace(id=10, name="Administrator"),
+            SimpleNamespace(id=20, name="Gen Z Baddies"),
+        ]
+    )
+    guild.get_role = lambda rid: next((r for r in guild.roles if r.id == rid), None)
+
+    from cogs.moderation import Moderation
+    role, err = Moderation._find_role_by_name(guild, "admin")
+    assert err is None
+    assert role.name == "Administrator"
+
+    role2, err2 = Moderation._find_role_by_name(guild, "gen z baddie")
+    assert err2 is None
+    assert role2.name == "Gen Z Baddies"
+

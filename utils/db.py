@@ -162,6 +162,31 @@ async def init_db():
             created_at TEXT NOT NULL,
             PRIMARY KEY(guild_id, user_id)
         )
+
+        """)
+        # AI Daily Usage Limits table
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS ai_daily_usage (
+            user_id INTEGER NOT NULL,
+            date_str TEXT NOT NULL,
+            text_count INTEGER DEFAULT 0,
+            image_count INTEGER DEFAULT 0,
+            PRIMARY KEY(user_id, date_str)
+        )
+        """)
+        # Vanity Trackers table
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS vanity_trackers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            vanity TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, vanity)
+        )
         """)
         await conn.commit()
+
+
+
+
 

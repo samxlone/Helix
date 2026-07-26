@@ -127,3 +127,45 @@ async def test_afk_and_reminders(tmp_path, monkeypatch):
         assert row is not None
         assert row['message'] == "Check oven"
     cog.cog_unload()
+
+
+@pytest.mark.asyncio
+async def test_serverinfo_command():
+    from cogs.utility import Utility
+    bot = SimpleNamespace(wait_until_ready=fake_wait)
+    cog = Utility(bot=bot)
+
+    guild = SimpleNamespace(
+        id=1075480726151110656,
+        name="The NXT ™",
+        description="The Biggest Indian Community",
+        member_count=100,
+        members=[SimpleNamespace(bot=False), SimpleNamespace(bot=True)],
+        categories=[1],
+        text_channels=[1, 2],
+        voice_channels=[3],
+        channels=[1, 2, 3],
+        created_at=datetime.now(timezone.utc),
+        owner=SimpleNamespace(mention="<@123>", id=123),
+        owner_id=123,
+        icon=SimpleNamespace(url="https://example.com/icon.png"),
+        banner=SimpleNamespace(url="https://example.com/banner.png"),
+        premium_tier=3,
+        premium_subscription_count=144,
+        premium_subscriber_role=SimpleNamespace(mention="<@&999>"),
+        verification_level="HIGH",
+        explicit_content_filter="ALL_MEMBERS",
+        roles=[SimpleNamespace(id=1, mention="@everyone"), SimpleNamespace(id=2, mention="<@&11>")],
+        default_role=SimpleNamespace(id=1, mention="@everyone")
+    )
+
+    ctx = FakeContext(author=FakeUser(id=1))
+    ctx.guild = guild
+
+    await cog.serverinfo.callback(cog, ctx)
+    assert len(ctx.messages_sent) == 1
+    embed = ctx.messages_sent[0][1]['embed']
+    assert "Server Information" in embed.title
+    assert embed.image.url == "https://example.com/banner.png"
+    assert embed.thumbnail.url == "https://example.com/icon.png"
+    cog.cog_unload()

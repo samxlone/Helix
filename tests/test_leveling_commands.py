@@ -34,6 +34,12 @@ class FakeGuild:
     def get_role(self, rid):
         return None
 
+    def get_channel(self, cid):
+        if hasattr(self, "_channel") and self._channel and self._channel.id == cid:
+            return self._channel
+        return None
+
+
 
 class FakeInteraction:
     def __init__(self, user, guild):
@@ -178,4 +184,69 @@ async def test_toggle_xp(monkeypatch):
 
     assert config_store["xp_enabled"] is True
     assert any("enabled" in s for s in ctx_sent)
+
+
+@pytest.mark.asyncio
+async def test_setlevelchannel_and_ignorexp_channel(monkeypatch):
+    import cogs.leveling as leveling_cog
+
+    config_store = {"xp_enabled": True, "level_channel_id": None, "ignored_xp_channels": []}
+
+    async def fake_set_guild_config(guild_id, patch):
+        config_store.update(patch)
+
+    async def fake_get_guild_config(gid):
+        return dict(config_store)
+
+    monkeypatch.setattr(leveling_cog, 'set_guild_config', fake_set_guild_config)
+    monkeypatch.setattr(leveling_cog, 'get_guild_config', fake_get_guild_config)
+
+    async def self_is_owner(u):
+        return True
+
+    bot = SN(is_owner=self_is_owner)
+    cog = leveling_cog.LevelingCog(bot=bot)
+
+    admin_user = FakeUser(id=111, manage_guild=True)
+    target_channel = FakeChannel(id=888)
+    guild = FakeGuild(id=55, name="TestGuild")
+
+    class FakeCtx:
+        def __init__(self, author, channel):
+            self.author = author
+            self.guild = guild
+            self.channel = channel
+            self.message = SN(content="!setlevelchannel #bot-commands")
+            self.sent = []
+        async def send(self, content=None, embed=None, ephemeral=False):
+            if content:
+                self.sent.append(content)
+            if embed:
+                self.sent.append(embed)
+
+    # 1. Test setlevelchannel
+    ctx = FakeCtx(admin_user, target_channel)
+    await cog.setlevelchannel.callback(cog, ctx, channel=target_channel)
+    assert config_store["level_channel_id"] == 888
+
+    # 2. Test ignorexp for a channel
+    guild._channel = target_channel
+    guild.text_channels = [target_channel]
+    await cog.ignorexp.callback(cog, ctx, "<#888>")
+
+    assert 888 in config_store["ignored_xp_channels"]
+
+
+
+    # 3. Verify on_message skips XP in ignored channel
+    award_called = []
+    async def fake_award_xp(user_id, amount):
+        award_called.append((user_id, amount))
+        return False, 0, 0
+    monkeypatch.setattr(leveling_cog, 'award_xp', fake_award_xp)
+
+    msg = SN(author=SN(bot=False, id=999, mention="<@999>"), guild=guild, channel=target_channel)
+    await cog.on_message(msg)
+    assert len(award_called) == 0
+
 
