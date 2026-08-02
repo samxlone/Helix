@@ -2,8 +2,9 @@ import pytest
 from types import SimpleNamespace as SN
 
 class FakePermissions:
-    def __init__(self, manage_emojis_and_stickers=True, administrator=False):
+    def __init__(self, manage_emojis_and_stickers=True, manage_expressions=True, administrator=False):
         self.manage_emojis_and_stickers = manage_emojis_and_stickers
+        self.manage_expressions = manage_expressions
         self.administrator = administrator
 
 class FakeMember:
@@ -11,7 +12,7 @@ class FakeMember:
         self.id = id
         self.display_name = name
         self.mention = f"<@{id}>"
-        self.guild_permissions = FakePermissions(manage_emojis_and_stickers=manage_emojis)
+        self.guild_permissions = FakePermissions(manage_emojis_and_stickers=manage_emojis, manage_expressions=manage_emojis)
 
 class FakeGuild:
     def __init__(self, id=55, name="TestGuild"):
@@ -207,9 +208,9 @@ async def test_steal_sticker_from_replied_message(monkeypatch):
     await cog.steal.callback(cog, ctx, input_arg=None)
 
     # 1. Verify StealStickerView was sent
-    from cogs.utility import StealStickerView
-    view = next(s for s in ctx.sent if isinstance(s, StealStickerView))
+    view = next(s for s in ctx.sent if type(s).__name__ == "StealStickerView")
     assert view is not None
+
 
     # Mock interaction for button clicks
     class FakeInteraction:

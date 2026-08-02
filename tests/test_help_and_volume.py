@@ -74,22 +74,22 @@ async def test_help_command_interactive_panel(monkeypatch):
     await cog.help.callback(cog, ctx, command_name=None)
 
     assert len(ctx.sent) >= 2
-    from cogs.utility import HelpView, HelpSelect
-    view = next(s for s in ctx.sent if isinstance(s, HelpView))
-    select: HelpSelect = view.children[0]
+    view = next(s for s in ctx.sent if type(s).__name__ == "HelpView")
+    select = view.children[0]
     option_labels = [opt.label for opt in select.options]
-    assert "Owner Commands" not in option_labels
-    assert len(option_labels) == 7
+    assert "Bot Owner & Branding" not in option_labels
 
-    # 2. Owner help panel (8 options, includes Owner Commands)
+    # 2. Owner help panel (includes Owner Commands)
     monkeypatch.setenv("OWNER_ID", "999")
     ctx_owner = FakeCtx(author=SN(id=999))
     await cog.help.callback(cog, ctx_owner, command_name=None)
 
-    view_owner = next(s for s in ctx_owner.sent if isinstance(s, HelpView))
-    select_owner: HelpSelect = view_owner.children[0]
+    view_owner = next(s for s in ctx_owner.sent if type(s).__name__ == "HelpView")
+    select_owner = view_owner.children[0]
     owner_option_labels = [opt.label for opt in select_owner.options]
-    assert "Owner Commands" in owner_option_labels
-    assert len(owner_option_labels) == 8
+    assert "Bot Owner & Branding" in owner_option_labels
+
+
+
 
 

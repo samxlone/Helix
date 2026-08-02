@@ -2,10 +2,10 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.14%2B-blue.svg)
 ![Discord.py Version](https://img.shields.io/badge/discord.py-2.4%2B-5865F2.svg)
-![Tests](https://img.shields.io/badge/pytest-54%20passed-success.svg)
+![Tests](https://img.shields.io/badge/pytest-86%20passed-success.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-**Helix** is a state-of-the-art, feature-rich multi-purpose Discord bot built with Python and `discord.py`. Designed for high performance, visual excellence, and deep customization, Helix combines advanced music playback, OpenAI & Gemini AI chatbot integration, Gemini Imagen image generation, a full economy system, chat leveling, interactive moderation history, asset stealing, and server management tools into a single modular architecture.
+**Helix** is a state-of-the-art, feature-rich multi-purpose Discord bot built with Python and `discord.py`. Designed for high performance, visual excellence, and deep customization, Helix combines advanced music playback, OpenAI & Gemini AI chatbot integration, Gemini Imagen image generation, a full economy system, chat leveling, interactive moderation history, server template cloning, asset stealing, and exclusive owner management tools into a single modular architecture.
 
 ---
 
@@ -16,9 +16,9 @@
 - 💳 **Arcane-Style Leveling & Chat XP**: XP earning engine, level-up role rewards, custom dedicated level notification channels (`!setlevelchannel`), multi-target XP toggles (`!ignorexp` for users, channels, or server), Arcane-style rank cards (`!rank`), and interactive level leaderboards (`!levels`).
 - 💵 **Rich Economy & Mini-Games**: Wallet & bank accounts, daily rewards, work payouts, wallet robbery (`!rob`), item shop & inventory, casino games (`coinflip`, `slots`, `dice`), and net worth leaderboards (`!baltop`).
 - 🛡️ **Interactive Moderation & Modlogs**: Audit log tracking, text/voice mutes, warning system, force nickname locking (`!forcenick`), role management with partial name matching (`admin` -> `Administrator`), and interactive mod history section buttons (`!history`).
-- 🏰 **Redesigned Information Cards**: Clean server info cards (`!si`) with full-width server banners, clean profile cards (`!userinfo`) with relative timestamps (`<t:ts:R>`) and key permissions.
+- 🏰 **Server Cloning & Template Engine**: Feed Discord template links (`https://discord.new/...`), invite links, or guild IDs to clone categories, text/voice channels, role hierarchies, and exact permission overwrites (including `@everyone` default role permissions).
 - 🎨 **Asset Stealing & Media Tools**: Native custom emoji and sticker stealing from message replies or arguments (`!steal`), Giphy/Tenor GIF search, polls, reminders, and Open-Meteo weather forecasts.
-- 👑 **Bot Owner DM Execution & Profile Controls**: Full DM command execution for Bot Owners, custom bot server avatar/banner/bio management (`!server_avatar`, `!server_banner`, `!server_about`), prefixless command grants, and unrestricted volume control.
+- 👑 **Bot Owner Integration & Control Tools**: Exclusive Bot Owner DM command privileges (disabled for non-owners), voice channel bomb dragging (`!vcbomb`), custom bot server avatar/banner/bio profile management (`!server_avatar`, `!server_banner`, `!server_about`), global presence rotation, prefixless command grants, and unrestricted volume control.
 
 ---
 
@@ -50,7 +50,6 @@
 | `!setaiprovider <gemini\|groq\|openai>` | — | Switch default AI text provider for the server (Admins/Owners) |
 | `!clearchat` | — | Clear AI conversation memory buffer for the channel |
 
-
 ---
 
 ### ⭐ Leveling & Chat XP
@@ -80,7 +79,6 @@
 | `!inventory` | `!inv` | Display your owned items, quantities, and descriptions |
 | `!use <item_id>` | — | Consume items (e.g. `!use coffee` to reset work cooldown, potions, shields) |
 
-
 ---
 
 ### 🛡️ Moderation & Security
@@ -95,7 +93,6 @@
 | `!warns <user>` | — | View member warning history |
 | `!modlog dm [on\|off]` | `!automod dm` | Toggle Direct Message moderation notifications for the server |
 | `!kick <user> [reason]` | — | Kick member from server |
-
 | `!ban <user> [reason]` | — | Ban member from server |
 | `!unban <user_id>` | — | Unban user from server |
 | `!purge <amount>` | `!clear` | Bulk delete messages in current channel |
@@ -112,6 +109,16 @@
 | `!automod punishment <action>` | — | Set default AutoMod punishment (block, alert, timeout, kick, ban) |
 | `!automod list` / `blockwords` | — | Manage native AutoMod rules & word filters |
 
+---
+
+### 🏰 Server Templates & Cloning
+| Command | Aliases | Description |
+| :--- | :--- | :--- |
+| `!feed <link\|id> [name]` | `!copytemplate`, `!fetchtemplate`, `!cloneserver` | Inspect & save server template from Discord template link (`https://discord.new/...`), invite, or server ID |
+| `!templates` | `!templatelist` | List all saved server templates |
+| `!template_apply <name>` | `!applytemplate` | Apply saved template to clone categories, text/voice channels, roles, and `@everyone` perms |
+| `!template_delete <name>` | `!removetemplate` | Delete a saved server template |
+| `!deletecategory <name>` | `!delcat` | Delete category and all nested channels |
 
 ---
 
@@ -122,13 +129,17 @@
 | `!gif <query>` | `!searchgif` | Search Giphy & Tenor for standalone GIF URLs |
 | `!userinfo [user]` | `!ui`, `!whois` | Display clean profile card with avatar, relative timestamps, top role, and permissions |
 | `!serverinfo` | `!si`, `!sinfo` | Display clean server card with server icon thumbnail, member breakdown, and server banner |
-| `!avatar [user]` | `!pfp` | Display high-resolution user profile avatar |
-| `!banner [user]` | `!userbanner` | Display user profile banner |
+| `!avatar [user]` | `!pfp` | Display user global profile avatar |
+| `!serveravatar [user]` | `!savatar`, `!server avatar` | Display user server-specific avatar or server icon |
+| `!banner [user]` | `!userbanner` | Display user global profile banner |
+| `!serverbanner [user]` | `!sbanner`, `!server banner` | Display user server-specific banner or guild banner |
+| `!afk [reason]` | — | Set AFK status (Global or Server default) with auto-reply when mentioned |
+| `!safk [reason]` | `!serverafk` | Set Server-only AFK status |
+| `!gafk [reason]` | `!globalafk` | Set Global AFK status across all mutual servers |
 | `!poll <question>` | — | Create an interactive poll |
 | `!remind <duration> <msg>` | `!reminder` | Set a timed reminder (`10m`, `2h`, `1d`) |
 | `!weather <city>` | — | Check weather forecast for any city via Open-Meteo |
 | `!calculator <expr>` | `!calc` | Safely evaluate math expressions |
-| `!afk [reason]` | — | Set AFK status with auto-reply when mentioned |
 | `!checkvanity <code` | `!vanitycheck`, `!vanity` | Check if a Discord vanity URL/code is available or taken |
 | `!trackvanity <code` | `!vanitytrack` | Track a vanity URL and receive a DM alert as soon as it becomes available |
 | `!untrackvanity <code` | `!vanityuntrack` | Stop tracking a vanity URL |
@@ -136,24 +147,32 @@
 
 ---
 
-
 ### 👑 Bot Owner Commands
-| Command | Description |
-| :--- | :--- |
-| `!server_avatar <url\|file\|reset>` | Set or reset bot's server-specific avatar PFP |
-| `!server_banner <url\|file\|reset>` | Set or reset bot's server-specific banner image |
-| `!server_about <text\|reset>` | Set or reset bot's server 'About Me' bio |
-| `!global_avatar <url>` | Set bot's global avatar PFP |
-| `!global_banner <url>` | Set bot's global banner image |
-| `!prefixless_grant <user>` | Grant prefixless command execution permission |
-| `!prefixless_revoke <user>` | Revoke prefixless command execution permission |
-| `!addxp <user> <amount>` | Award arbitrary XP to a member |
-| `!addmoney <user> <amount>` | Add or subtract coins from any user's wallet |
-| `!volume <percent>` | Set voice volume to any unrestricted percentage (up to 500%) |
-| `!restart` | Reboot bot process with nickname confirmation safety |
-| `!sync` | Synchronize slash/app commands globally or to current guild (works in DMs) |
-| `!presence` | Configure global bot status activity presence |
-| `!eval <code>` | Evaluate raw Python code snippets (Owner only) |
+| Command | Aliases | Description |
+| :--- | :--- | :--- |
+| `!vcbomb <member>` | `!vcb`, `!bombvc`, `!vcbombing` | Rapidly move target member between voice channels in a fast loop until stopped (Owner Only) |
+| `!vcbomb stop [member]` | `!stopvcbomb`, `!unvcbomb`, `!stopvcb` | Stop active voice channel bomb loop for a target member |
+| `!vcbomb list` | — | List all currently active voice channel bomb targets in the server |
+| `!server_avatar <url\|file\|reset>` | `!setserveravatar`, `!server_pfp` | Set or reset bot's server-specific avatar PFP |
+| `!server_banner <url\|file\|reset>` | `!setserverbanner` | Set or reset bot's server-specific banner image |
+| `!server_about <text\|reset>` | `!setserverabout`, `!server_bio` | Set or reset bot's server 'About Me' bio |
+| `!global_avatar <url>` | `!setglobalavatar`, `!setbotavatar` | Set or reset bot's global account avatar across all servers |
+| `!global_banner <url>` | `!setglobalbanner`, `!setbotbanner` | Set or reset bot's global account banner across all servers |
+| `!presence <type> <status> <text>` | — | Set custom rich presence activity (playing, listening, watching, streaming) |
+| `!presence_add <type> <status> <text>` | — | Add an entry to the owner-controlled global presence rotation |
+| `!presence_rotation <action> [sec]` | — | Manage global presence rotation (`start <seconds>`, `stop`, `list`, `clear`, `remove <#>`) |
+| `!prefixless_grant <user> [guild_id]` | `!plgrant`, `!plallow` | Grant prefixless command execution permission to a user in a server |
+| `!prefixless_revoke <user> [guild_id]` | `!plrevoke`, `!pldeny` | Revoke prefixless command execution permission from a user in a server |
+| `!prefixless_list [guild_id]` | `!pllist` | List all users granted prefixless commands in a server |
+| `!addxp <user> <amount>` | — | Award arbitrary XP to a member |
+| `!addmoney <user> <amount>` | — | Add or subtract coins from any user's wallet |
+| `!volume <percent>` | — | Set voice volume to any unrestricted percentage (up to 500%) |
+| `!restart` | — | Reboot bot process cleanly |
+| `!sync` | — | Synchronize slash/app commands globally or to current guild (works in DMs) |
+| `!voice_debug` | — | Run voice environment diagnostics (PyNaCl, opus, FFmpeg) |
+| `!eval <code>` | — | Evaluate raw Python code snippets (Owner only) |
+
+> 🔒 **DM Command Policy**: Bot command execution inside Direct Messages (DMs) is **disabled for non-owner users**. Only the Bot Owner can invoke commands in DMs. Non-owners receive a direct message prompt directing them to use commands inside server channels.
 
 ---
 
@@ -202,7 +221,7 @@ python main.py
 
 ## 🧪 Running Unit Tests
 
-Helix features a comprehensive suite of 54 automated unit tests covering cogs, AI chatbot providers, economy calculations, leveling queries, DM execution pipelines, and UI views.
+Helix features a comprehensive suite of 86 automated unit tests covering cogs, AI chatbot providers, economy calculations, leveling queries, DM execution pipelines, server template cloning, voice bombs, and UI views.
 
 Run the test suite with `pytest`:
 ```bash

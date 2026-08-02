@@ -136,14 +136,26 @@ async def init_db():
             expires_at TEXT NOT NULL
         )
         """)
-        # AFK table
+        # AFK table (supports global and server-specific AFK)
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS afk (
-            user_id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            guild_id INTEGER NOT NULL DEFAULT 0,
             message TEXT,
-            since TEXT NOT NULL
+            since TEXT NOT NULL,
+            scope TEXT DEFAULT 'global',
+            PRIMARY KEY(user_id, guild_id)
         )
         """)
+        try:
+            await conn.execute("ALTER TABLE afk ADD COLUMN guild_id INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE afk ADD COLUMN scope TEXT DEFAULT 'global'")
+        except Exception:
+            pass
+
         # Prefixless permissions table
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS prefixless_permissions (

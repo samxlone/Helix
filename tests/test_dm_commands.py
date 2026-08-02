@@ -104,3 +104,11 @@ async def test_owner_dm_execution_and_bypass(tmp_path, monkeypatch):
     err = commands.NoPrivateMessage()
     await on_error(error_ctx, err)
     assert "REINVOKED_COMMAND_IN_DM" in error_ctx.sent
+
+    # 4. Test non-owner DM check failure error message
+    non_owner = FakeUser(id=555, name="RegularUser")
+    non_owner_ctx = FakeCtx(author=non_owner, command_name="ping")
+    dm_err = commands.CheckFailure("Bot commands in DMs are disabled for non-owner users.")
+    await on_error(non_owner_ctx, dm_err)
+    assert any("Bot commands in DMs are disabled for non-owner users" in str(s) for s in non_owner_ctx.sent)
+

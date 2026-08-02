@@ -111,8 +111,9 @@ async def resolve(query: str, requester: int = None) -> Union[Track, List[Track]
         thumbnail=None,
         requester=requester,
         provider="search",
-        stream_url=None,
+        stream_url=q,
         is_live=False,
+
         is_playlist=False,
     )
     _resolver_cache.set(q, t)

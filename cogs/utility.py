@@ -314,26 +314,60 @@ class Utility(commands.Cog):
         await ctx.send(embed=embed)
 
 
-    @commands.hybrid_command(name="avatar", aliases=["av", "pfp"])
+    @commands.hybrid_command(name="avatar", aliases=["av", "pfp", "useravatar", "uavatar"])
     async def avatar(self, ctx: commands.Context, user: Optional[discord.User] = None):
-        """Show a user's avatar. Shortcuts: av, pfp."""
+        """Show a user's global account avatar. Shortcuts: av, pfp, useravatar."""
         target = user or ctx.author
-        avatar = target.display_avatar.with_size(4096)
+        avatar_obj = getattr(target, "avatar", None) or target.display_avatar
+        avatar_url = avatar_obj.with_size(4096).url
         embed = discord.Embed(
-            title=f"🖼️ {target.display_name}'s Avatar",
-            description=f"[Open original image]({avatar.url})",
+            title=f"🖼️ {target.display_name}'s Global Avatar",
+            description=f"[Open original image]({avatar_url})",
             color=getattr(target, "color", None) or discord.Color.dark_teal(),
         )
-        embed.set_image(url=avatar.url)
+        embed.set_image(url=avatar_url)
         embed.set_footer(text=f"Requested by {ctx.author.display_name}")
         await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="banner", aliases=["bnr", "ubanner"])
+    @commands.hybrid_command(name="serveravatar", aliases=["savatar", "sav", "guildavatar"])
+    @commands.guild_only()
+    async def serveravatar(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """Show a user's server-specific avatar (or server icon if no user specified). Shortcuts: savatar, sav."""
+        guild = getattr(ctx, "guild", None)
+        target = member or (ctx.author if isinstance(ctx.author, discord.Member) else None)
+        note = None
+
+        if target and getattr(target, "guild_avatar", None):
+            avatar_url = target.guild_avatar.with_size(4096).url
+            title = f"🖼️ {target.display_name}'s Server Avatar"
+        elif target:
+            avatar_url = target.display_avatar.with_size(4096).url
+            title = f"🖼️ {target.display_name}'s Server Avatar"
+            note = "User has no custom server avatar set, showing display avatar."
+        elif guild and getattr(guild, "icon", None):
+            avatar_url = guild.icon.with_size(4096).url
+            title = f"🖼️ {guild.name}'s Server Icon"
+        else:
+            await ctx.send("❌ Could not find a server avatar or server icon.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title=title,
+            description=f"[Open original image]({avatar_url})",
+            color=getattr(target, "color", None) or discord.Color.dark_teal(),
+        )
+        embed.set_image(url=avatar_url)
+        if note:
+            embed.set_footer(text=f"{note} • Requested by {ctx.author.display_name}")
+        else:
+            embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+        await ctx.send(embed=embed)
+
+    @commands.hybrid_command(name="banner", aliases=["bnr", "ubanner", "userbanner"])
     async def banner(self, ctx: commands.Context, user: Optional[discord.User] = None):
         """Show a user's profile banner. Shortcuts: bnr, ubanner."""
         target = user or ctx.author
         try:
-            # fetch_user returns the profile banner, which may not exist on cached Member objects.
             profile = await self.bot.fetch_user(target.id)
         except discord.HTTPException:
             await ctx.send("I couldn't retrieve that user's profile.", ephemeral=True)
@@ -343,15 +377,83 @@ class Utility(commands.Cog):
             await ctx.send(f"{target.mention} does not have a profile banner set.", ephemeral=True)
             return
 
-        banner = profile.banner.with_size(4096)
+        banner_url = profile.banner.with_size(4096).url
         embed = discord.Embed(
-            title=f"🖼️ {profile.display_name}'s Banner",
-            description=f"[Open original image]({banner.url})",
+            title=f"🖼️ {profile.display_name}'s Profile Banner",
+            description=f"[Open original image]({banner_url})",
             color=profile.accent_color or discord.Color.dark_teal(),
         )
-        embed.set_image(url=banner.url)
+        embed.set_image(url=banner_url)
         embed.set_footer(text=f"Requested by {ctx.author.display_name}")
         await ctx.send(embed=embed)
+
+    @commands.hybrid_command(name="serverbanner", aliases=["sbanner", "sb", "guildbanner"])
+    @commands.guild_only()
+    async def serverbanner(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """Show a user's server member banner (or the server's guild banner). Shortcuts: sbanner, sb."""
+        guild = getattr(ctx, "guild", None)
+        target = member
+        banner_url = None
+        title = ""
+        note = None
+
+        if target:
+            if getattr(target, "guild_banner", None):
+                banner_url = target.guild_banner.with_size(4096).url
+                title = f"🖼️ {target.display_name}'s Server Banner"
+            else:
+                try:
+                    profile = await self.bot.fetch_user(target.id)
+                    if profile.banner:
+                        banner_url = profile.banner.with_size(4096).url
+                        title = f"🖼️ {target.display_name}'s Profile Banner"
+                        note = "User has no custom server banner set, showing profile banner."
+                except Exception:
+                    pass
+
+            if not banner_url:
+                await ctx.send(f"{target.mention} does not have a server or profile banner set.", ephemeral=True)
+                return
+        else:
+            if guild and getattr(guild, "banner", None):
+                banner_url = guild.banner.with_size(4096).url
+                title = f"🖼️ {guild.name}'s Server Banner"
+            else:
+                guild_name = guild.name if guild else "Server"
+                await ctx.send(f"❌ **{guild_name}** does not have a server banner set.", ephemeral=True)
+                return
+
+
+        embed = discord.Embed(
+            title=title,
+            description=f"[Open original image]({banner_url})",
+            color=getattr(target, "color", None) or discord.Color.dark_teal(),
+        )
+        embed.set_image(url=banner_url)
+        if note:
+            embed.set_footer(text=f"{note} • Requested by {ctx.author.display_name}")
+        else:
+            embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+        await ctx.send(embed=embed)
+
+    @commands.group(name="server", invoke_without_command=True)
+    @commands.guild_only()
+    async def server_group(self, ctx: commands.Context):
+        """Server command group. Usage: !server avatar or !server banner."""
+        await ctx.send("Server commands: `!server avatar [member]` | `!server banner [member/server]`")
+
+    @server_group.command(name="avatar", aliases=["av", "icon"])
+    @commands.guild_only()
+    async def server_group_avatar(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """Show server avatar or a member's server avatar."""
+        await self.serveravatar(ctx, member=member)
+
+    @server_group.command(name="banner", aliases=["bnr"])
+    @commands.guild_only()
+    async def server_group_banner(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """Show server banner or a member's server banner."""
+        await self.serverbanner(ctx, member=member)
+
 
     @commands.hybrid_command(name="ping")
     async def ping(self, ctx: commands.Context):
@@ -781,68 +883,133 @@ class Utility(commands.Cog):
 
     @commands.hybrid_command(name="afk")
     async def afk(self, ctx: commands.Context, *, message: Optional[str] = "AFK"):
-        """Marks you as AFK. Sends a status if anyone mentions you."""
-        afk_message = message[:200]
+        """Marks you as AFK (Server AFK or Global AFK). Example: !afk server Lunch or !afk global Busy or !afk Studying."""
+        guild = getattr(ctx, "guild", None)
+        guild_id_val = guild.id if guild else 0
+        raw_msg = (message or "AFK").strip()
+        scope = "global"
+        guild_id = 0
+        afk_message = raw_msg
+
+        lower_msg = raw_msg.lower()
+
+        if lower_msg.startswith(("server ", "s ", "local ", "-server ", "--server ")):
+            scope = "server"
+            guild_id = guild_id_val
+            parts = raw_msg.split(maxsplit=1)
+            afk_message = parts[1] if len(parts) > 1 else "AFK"
+        elif lower_msg in ("server", "s", "local", "-server", "--server"):
+            scope = "server"
+            guild_id = guild_id_val
+            afk_message = "AFK"
+        elif lower_msg.startswith(("global ", "g ", "all ", "-global ", "--global ")):
+            scope = "global"
+            guild_id = 0
+            parts = raw_msg.split(maxsplit=1)
+            afk_message = parts[1] if len(parts) > 1 else "AFK"
+        elif lower_msg in ("global", "g", "all", "-global", "--global"):
+            scope = "global"
+            guild_id = 0
+            afk_message = "AFK"
+
+        afk_message = afk_message[:200]
         since_iso = datetime.now(timezone.utc).isoformat()
-        
+
         async with get_connection() as conn:
             await conn.execute(
-                "INSERT OR REPLACE INTO afk (user_id, message, since) VALUES (?, ?, ?)",
-                (ctx.author.id, afk_message, since_iso)
+                "INSERT OR REPLACE INTO afk (user_id, guild_id, message, since, scope) VALUES (?, ?, ?, ?, ?)",
+                (ctx.author.id, guild_id, afk_message, since_iso, scope)
             )
             await conn.commit()
-            
-        original_nick = ctx.author.display_name
-        if not original_nick.startswith("[AFK] "):
-            try:
-                await ctx.author.edit(nick=f"[AFK] {original_nick[:25]}")
-            except Exception:
-                pass
-                
-        await ctx.send(f"💤 {ctx.author.mention}, I have set your AFK status: **{afk_message}**")
+
+        if guild and hasattr(ctx.author, "edit"):
+            original_nick = getattr(ctx.author, "display_name", "")
+            if not original_nick.startswith("[AFK] "):
+                try:
+                    await ctx.author.edit(nick=f"[AFK] {original_nick[:25]}")
+                except Exception:
+                    pass
+
+        if scope == "server" and guild:
+            await ctx.send(f"💤 {ctx.author.mention}, I have set your **Server AFK** status in **{guild.name}**: **{afk_message}**")
+        else:
+            await ctx.send(f"💤 {ctx.author.mention}, I have set your **Global AFK** status: **{afk_message}**")
+
+    @commands.hybrid_command(name="safk", aliases=["serverafk", "server_afk"])
+    @commands.guild_only()
+    async def safk(self, ctx: commands.Context, *, message: Optional[str] = "AFK"):
+        """Set a server-specific AFK status only for the current server."""
+        full_msg = f"server {message}" if message else "server AFK"
+        await self.afk.callback(self, ctx, message=full_msg)
+
+    @commands.hybrid_command(name="gafk", aliases=["globalafk", "global_afk"])
+    async def gafk(self, ctx: commands.Context, *, message: Optional[str] = "AFK"):
+        """Set a global AFK status active across all servers."""
+        full_msg = f"global {message}" if message else "global AFK"
+        await self.afk.callback(self, ctx, message=full_msg)
+
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author.bot:
+        if getattr(message.author, "bot", False):
             return
-            
+
+
+        current_guild_id = message.guild.id if message.guild else 0
+
         async with get_connection() as conn:
-            cur = await conn.execute("SELECT since FROM afk WHERE user_id = ?", (message.author.id,))
-            row = await cur.fetchone()
+            cur = await conn.execute(
+                "SELECT guild_id, since, scope FROM afk WHERE user_id = ? AND (guild_id = 0 OR guild_id = ?)",
+                (message.author.id, current_guild_id)
+            )
+            rows = await cur.fetchall()
             await cur.close()
-            
-            if row:
-                since_str = row['since']
-                since = datetime.fromisoformat(since_str)
-                if (datetime.now(timezone.utc) - since).total_seconds() > 3:
-                    await conn.execute("DELETE FROM afk WHERE user_id = ?", (message.author.id,))
-                    await conn.commit()
-                    
-                    if message.author.nick and message.author.nick.startswith("[AFK] "):
-                        try:
-                            await message.author.edit(nick=message.author.nick[6:])
-                        except Exception:
-                            pass
-                            
-                    await message.channel.send(f"👋 Welcome back {message.author.mention}! I've removed your AFK status.")
-                    
+
+            if rows:
+                for row in rows:
+                    since_str = row['since']
+                    since = datetime.fromisoformat(since_str)
+                    if (datetime.now(timezone.utc) - since).total_seconds() > 3:
+                        afk_guild_id = row['guild_id']
+                        scope_type = row['scope'] if 'scope' in row.keys() else ('server' if afk_guild_id != 0 else 'global')
+
+                        await conn.execute("DELETE FROM afk WHERE user_id = ? AND guild_id = ?", (message.author.id, afk_guild_id))
+                        await conn.commit()
+
+                        if message.author.nick and message.author.nick.startswith("[AFK] "):
+                            try:
+                                await message.author.edit(nick=message.author.nick[6:])
+                            except Exception:
+                                pass
+
+                        if scope_type == "server" and message.guild:
+                            await message.channel.send(f"👋 Welcome back {message.author.mention}! I've removed your **Server AFK** status in **{message.guild.name}**.")
+                        else:
+                            await message.channel.send(f"👋 Welcome back {message.author.mention}! I've removed your **Global AFK** status.")
+
         if message.mentions:
             unique_mentions = list(set(message.mentions))
             for member in unique_mentions:
                 if member.id == message.author.id:
                     continue
-                    
+
                 async with get_connection() as conn:
-                    cur = await conn.execute("SELECT message, since FROM afk WHERE user_id = ?", (member.id,))
+                    cur = await conn.execute(
+                        "SELECT message, since, scope, guild_id FROM afk WHERE user_id = ? AND (guild_id = 0 OR guild_id = ?) ORDER BY guild_id DESC",
+                        (member.id, current_guild_id)
+                    )
                     row = await cur.fetchone()
                     await cur.close()
-                    
+
                     if row:
                         afk_msg, since_str = row['message'], row['since']
+                        scope_type = row['scope'] if 'scope' in row.keys() else ('server' if row['guild_id'] != 0 else 'global')
                         since_ts = int(datetime.fromisoformat(since_str).timestamp())
+                        tag = "Server AFK" if scope_type == "server" else "Global AFK"
                         await message.channel.send(
-                            f"💤 **{member.display_name}** is AFK: {afk_msg} (<t:{since_ts}:R>)"
+                            f"💤 **{member.display_name}** is AFK [{tag}]: {afk_msg} (<t:{since_ts}:R>)"
                         )
+
 
 
     @commands.hybrid_command(name="gif", aliases=["searchgif", "search_gif"])
@@ -869,7 +1036,8 @@ class Utility(commands.Cog):
     )
     @commands.guild_only()
     async def steal(self, ctx: commands.Context, *, input_arg: Optional[str] = None):
-        """Steal custom emojis or stickers from a message reply or argument and add them to this server."""
+        """Steal custom emojis or stickers and add them to this server."""
+
         if not ctx.guild:
             return
 
@@ -1006,10 +1174,124 @@ class Utility(commands.Cog):
         if stolen_emojis:
             await ctx.send(f"✅ Successfully stole emoji(s): {' '.join(stolen_emojis)}")
 
+    @commands.hybrid_command(name="roleicon", aliases=["setroleicon", "ricon"])
+    @commands.guild_only()
+    async def roleicon(self, ctx: commands.Context, role: discord.Role, *, icon: Optional[str] = None):
+        """Set or remove the icon for a server role using emojis, URLs, or attachments."""
+
+        if not ctx.guild:
+            return
+
+        # 1. Check permissions
+        if not (ctx.author.guild_permissions.manage_roles or ctx.author.guild_permissions.administrator or getattr(ctx.guild, "owner_id", None) == ctx.author.id):
+            is_owner = await self.bot.is_owner(ctx.author)
+            if not is_owner:
+                await ctx.send("❌ You need the **Manage Roles** permission to use this command.", ephemeral=True)
+                return
+
+        if ctx.guild.me and not ctx.guild.me.guild_permissions.manage_roles:
+            await ctx.send("❌ I need the **Manage Roles** permission to update role icons.", ephemeral=True)
+            return
+
+        # 2. Hierarchy check
+        if role >= ctx.author.top_role and ctx.guild.owner_id != ctx.author.id:
+            await ctx.send(f"❌ You cannot edit the role {role.mention} because it is higher than or equal to your highest role.", ephemeral=True)
+            return
+
+        if ctx.guild.me and role >= ctx.guild.me.top_role:
+            await ctx.send(f"❌ I cannot edit the role {role.mention} because it is higher than or equal to my highest role.", ephemeral=True)
+            return
+
+        # 3. Determine icon input (text argument or attachment)
+        icon_input = icon.strip() if icon else None
+        if not icon_input and ctx.message and ctx.message.attachments:
+            icon_input = ctx.message.attachments[0].url
+
+        if not icon_input:
+            await ctx.send("❌ Please provide an emoji, an image URL, an image attachment, or `remove`/`reset`.", ephemeral=True)
+            return
+
+        # 4. Handle remove / reset
+        if icon_input.lower() in ["none", "remove", "reset", "clear"]:
+            try:
+                await role.edit(display_icon=None, reason=f"Role icon removed by {ctx.author}")
+                embed = discord.Embed(
+                    title="Role Icon Updated!",
+                    description=f"☑️ {role.mention}\n👤 **Moderator** : {ctx.author.name}\n\n> **Icon** : *Removed*",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
+            except discord.HTTPException as e:
+                await ctx.send(f"❌ Failed to remove role icon: {e.text or e}", ephemeral=True)
+            return
+
+        # 5. Parse custom emoji (<:name:id> or <a:name:id>), unicode emoji, or image URL
+        display_icon_payload = None
+        icon_display_text = icon_input
+
+        custom_emoji_match = re.search(r"<a?:([a-zA-Z0-9_]+):(\d+)>", icon_input)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+        if custom_emoji_match:
+            e_name = custom_emoji_match.group(1)
+            e_id = custom_emoji_match.group(2)
+            is_anim = icon_input.startswith("<a:")
+            ext = "gif" if is_anim else "png"
+            emoji_url = f"https://cdn.discordapp.com/emojis/{e_id}.{ext}?size=128"
+            icon_display_text = f":{e_name}:"
+
+            try:
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    async with session.get(emoji_url) as resp:
+                        if resp.status == 200:
+                            display_icon_payload = await resp.read()
+            except Exception as exc:
+                logger.warning("Error fetching emoji image: %s", exc)
+
+        elif icon_input.startswith("http://") or icon_input.startswith("https://"):
+            try:
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    async with session.get(icon_input) as resp:
+                        if resp.status == 200:
+                            display_icon_payload = await resp.read()
+            except Exception as exc:
+                logger.warning("Error fetching image url: %s", exc)
+
+        else:
+            display_icon_payload = icon_input
+
+        if display_icon_payload is None:
+            await ctx.send("❌ Could not load or download the specified icon image.", ephemeral=True)
+            return
+
+        # 6. Apply role icon edit
+        try:
+            await role.edit(display_icon=display_icon_payload, reason=f"Role icon updated by {ctx.author}")
+
+            embed = discord.Embed(
+                title="Role Icon Updated!",
+                description=f"☑️ {role.mention}\n👤 **Moderator** : {ctx.author.name}\n\n> **Icon** : {icon_display_text}",
+                color=0x2b2d31
+            )
+            await ctx.send(embed=embed)
+
+        except discord.Forbidden:
+            await ctx.send("❌ I don't have permission to edit this role or role icons in this server.", ephemeral=True)
+        except discord.HTTPException as e:
+            if "boost" in str(e).lower() or e.code == 50013:
+                await ctx.send("❌ **Server Boost Level 2** is required to set custom role icons on Discord.", ephemeral=True)
+            else:
+                await ctx.send(f"❌ Failed to set role icon: {e.text or e}", ephemeral=True)
+        except Exception as e:
+            logger.exception("Error setting role icon: %s", e)
+            await ctx.send(f"❌ Error setting role icon: {e}", ephemeral=True)
+
+
     @commands.hybrid_command(name="tts", aliases=["speak", "say_tts", "text_to_speech"])
     @commands.guild_only()
     async def tts(self, ctx: commands.Context, *, words: Optional[str] = None):
-        """Play Text-to-Speech audio in your voice channel. Usage: !tts say <words> or !tts say <lang> <words>"""
+        """Play Text-to-Speech audio in your voice channel."""
+
         if not words:
             await ctx.send("❌ Please provide words to speak. Usage: `!tts say <words>` or `!tts say [lang] <words>` (e.g. `!tts say hello world` or `!tts say es Hola amigos`).", ephemeral=True)
             return
@@ -1094,34 +1376,47 @@ class Utility(commands.Cog):
             except Exception:
                 pass
 
-        categories_desc = (
-            "Welcome to **Helix**! Use the dropdown menu below to navigate to a command suite of your choice.\n\n"
-            "☰ **Command Modules**\n\n"
-            "> 🤖 **AI Assistant & Images** (`ai`) — Free Gemini/Groq chat & Flux image generation\n"
-            "> 🎵 **Music & Audio** (`music`) — Voice playback, queues, volume & VC speech\n"
-            "> 🛠️ **Utility & Tools** (`utility`) — Steal emojis/stickers, GIFs, polls & weather\n"
-            "> 🛡️ **Moderation & Security** (`mod`) — Interactive history, mutes, bans & modlogs\n"
-            "> 💵 **Economy & Casino** (`economy`) — Balance cards, work, daily, shop & games\n"
-            "> ⭐ **Leveling & Chat XP** (`levels`) — Rank cards, chat XP & guild leaderboards\n"
-            "> ⚙️ **Server & Settings** (`server`) — Server statistics, role info & member stats\n"
+        embed = discord.Embed(
+            title="✨ Welcome to Helix Command Center",
+            description=(
+                "Helix is equipped with **15 specialized command modules**.\n"
+                "Select any module from the dropdown menu below to view its full command list."
+            ),
+            color=discord.Color.from_rgb(88, 101, 242)
+        )
+
+        bot_user = getattr(self.bot, "user", None)
+        if bot_user and hasattr(bot_user, "display_avatar"):
+            embed.set_author(name="Helix Systems", icon_url=bot_user.display_avatar.url)
+        else:
+            embed.set_author(name="Helix Systems")
+
+        embed.add_field(
+            name="🛡️ Moderation & Defense",
+            value="> `Member Moderation` • `Action Logging` • `AutoMod` • `Anti-Nuke`",
+            inline=False
+        )
+        embed.add_field(
+            name="🤖 AI & Utilities",
+            value="> `AI Assistant` • `Music & Audio` • `Voice & Speech` • `Utility Tools` • `Vanity Tracker`",
+            inline=False
+        )
+        embed.add_field(
+            name="💵 Economy & Community",
+            value="> `Economy & Shop` • `Casino Minigames` • `Leveling & Chat XP` • `Server & User Info`",
+            inline=False
         )
 
         if is_owner:
-            categories_desc += "> 👑 **Owner Commands** (`owner`) — Bot profile, restart, prefixless & eval\n"
-
-        embed = discord.Embed(
-            color=discord.Color.from_rgb(88, 101, 242)
-        )
-        bot_user = getattr(self.bot, "user", None)
-        if bot_user and hasattr(bot_user, "display_avatar"):
-            embed.set_author(name="Helix Command Center", icon_url=bot_user.display_avatar.url)
-        else:
-            embed.set_author(name="Helix Command Center")
-        embed.description = categories_desc
+            embed.add_field(
+                name="👑 Server Management & Owner",
+                value="> `Server Cloner & Templates` • `Bot Owner & Branding`",
+                inline=False
+            )
 
         embed.add_field(
-            name="💡 Quick Tip",
-            value="Select a module from the dropdown below to explore detailed commands, or use `!help <command>` for an instant command breakdown.",
+            name="💡 Quick Navigation",
+            value="Select a category from the dropdown below or use `!help <command>` for an instant command breakdown.",
             inline=False
         )
         owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
@@ -1132,22 +1427,33 @@ class Utility(commands.Cog):
         await ctx.send(embed=embed, view=view)
 
 
+
 class HelpSelect(discord.ui.Select):
     def __init__(self, bot, is_owner: bool = False):
         options = [
-            discord.SelectOption(label="AI Chatbot", emoji="🤖", description="Ask AI, imagine image gen, daily limits, AI channel"),
-            discord.SelectOption(label="Music & Voice", emoji="🎵", description="Play music, TTS, queue, volume, voice status"),
-            discord.SelectOption(label="Utility & Fun", emoji="🛠️", description="Steal emojis/stickers, GIFs, polls, weather, calc"),
-            discord.SelectOption(label="Moderation & Logs", emoji="🛡️", description="Mute, kick, ban, warn, modlog, history sections"),
-            discord.SelectOption(label="Economy & Games", emoji="💵", description="Balance, daily, work, rob, shop, casino games"),
-            discord.SelectOption(label="Leveling", emoji="⭐", description="Rank, levels leaderboard, toggle XP"),
-            discord.SelectOption(label="Server & Settings", emoji="⚙️", description="Server info, role info, member count"),
+            discord.SelectOption(label="AI Assistant", emoji="🤖", description="Ask AI, imagine image gen, daily limits, AI channel"),
+            discord.SelectOption(label="Music & Audio", emoji="🎵", description="Play music, queue, volume, skip, pause"),
+            discord.SelectOption(label="Voice & Speech", emoji="🗣️", description="TTS text-to-speech & voice channel status"),
+            discord.SelectOption(label="Utility Tools", emoji="🛠️", description="Steal emojis/stickers, GIFs, polls, weather, calc"),
+            discord.SelectOption(label="Vanity Tracker", emoji="📡", description="Check & track Discord vanity URL availability"),
+            discord.SelectOption(label="Member Moderation", emoji="🛡️", description="Mute, kick, ban, hackban, forcenick, history, warns"),
+            discord.SelectOption(label="Action Logging", emoji="📜", description="Multi-channel logs, setup_logs, setlog, logs_config"),
+            discord.SelectOption(label="AutoMod Defense", emoji="🤖", description="AutoMod rules, antilink, scamfilter, markdown filter"),
+            discord.SelectOption(label="Anti-Nuke Defense", emoji="🏰", description="Anti-nuke server protection & trusted whitelists"),
+            discord.SelectOption(label="Economy & Shop", emoji="💵", description="Balance, daily, work, rob, bank, shop & inventory"),
+            discord.SelectOption(label="Casino Minigames", emoji="🎲", description="Coinflip, dice, and slots gambling minigames"),
+            discord.SelectOption(label="Leveling & Chat XP", emoji="⭐", description="Rank card, chat XP leaderboard, toggle XP"),
+            discord.SelectOption(label="Server & User Info", emoji="⚙️", description="Serverinfo, userinfo, roleinfo, membercount"),
         ]
 
         if is_owner:
             options.append(
-                discord.SelectOption(label="Owner Commands", emoji="👑", description="Bot profile, restart, sync, addxp, prefixless, eval")
+                discord.SelectOption(label="Server Cloner & Templates", emoji="🌐", description="Feed invite, template apply, nukeserver, deletecategory")
             )
+            options.append(
+                discord.SelectOption(label="Bot Owner & Branding", emoji="👑", description="Bot server profile, about bio, prefixless, restart, eval")
+            )
+
         super().__init__(placeholder="Choose a command category...", min_values=1, max_values=1, options=options)
         self.bot = bot
         self.is_owner = is_owner
@@ -1161,8 +1467,7 @@ class HelpSelect(discord.ui.Select):
         else:
             embed.set_author(name=f"Helix Help • {cat}")
 
-
-        if cat == "AI Chatbot":
+        if cat == "AI Assistant":
             embed.title = "🤖 AI Assistant & Image Commands"
             embed.add_field(
                 name="💬 AI Text Assistant",
@@ -1187,8 +1492,8 @@ class HelpSelect(discord.ui.Select):
                 inline=False
             )
 
-        elif cat == "Music & Voice":
-            embed.title = "🎵 Music & Voice Commands"
+        elif cat == "Music & Audio":
+            embed.title = "🎵 Music & Audio Playback"
             embed.add_field(
                 name="🎶 Playback Controls",
                 value=(
@@ -1208,14 +1513,22 @@ class HelpSelect(discord.ui.Select):
                 ),
                 inline=False
             )
+
+        elif cat == "Voice & Speech":
+            embed.title = "🗣️ Voice & TTS Speech"
             embed.add_field(
-                name="🗣️ Voice Speech",
+                name="🗣️ Voice Speech (TTS)",
                 value="> `tts say <words>` — Speak audio in VC *(Supports Hinglish & auto-language)*",
                 inline=False
             )
+            embed.add_field(
+                name="🔊 Voice Debug",
+                value="> `voice_debug` — Check voice client connection state & latency",
+                inline=False
+            )
 
-        elif cat == "Utility & Fun":
-            embed.title = "🛠️ Utility & Fun Commands"
+        elif cat == "Utility Tools":
+            embed.title = "🛠️ Utility Tools & Media"
             embed.add_field(
                 name="✨ Media & Stealing",
                 value=(
@@ -1235,8 +1548,11 @@ class HelpSelect(discord.ui.Select):
                 ),
                 inline=False
             )
+
+        elif cat == "Vanity Tracker":
+            embed.title = "📡 Vanity Checker & Real-Time Tracker"
             embed.add_field(
-                name="📡 Vanity Checker & Tracker",
+                name="📡 Vanity URL Management",
                 value=(
                     "> `checkvanity <code` (alias `vanity`) — Check if a Discord vanity is available or taken\n"
                     "> `trackvanity <code` — Receive an instant DM alert when a vanity opens up\n"
@@ -1246,57 +1562,74 @@ class HelpSelect(discord.ui.Select):
                 inline=False
             )
 
-
-        elif cat == "Moderation & Logs":
-            embed.title = "🛡️ Moderation & Logging Commands"
+        elif cat == "Member Moderation":
+            embed.title = "🛡️ Member Moderation Commands"
             embed.add_field(
-                name="🛡️ Member Moderation",
+                name="🛡️ Moderation Actions",
                 value=(
                     "> `mute` / `unmute` / `tempmute` — Text channel mute management\n"
                     "> `vcmute` / `vcunmute` — Voice channel mutes\n"
-                    "> `kick` / `ban` / `unban` — Server member moderation\n"
-                    "> `forcenick <user> <nick>` (alias `fn`) — Force & lock member nickname"
+                    "> `kick` / `ban` [user_id] / `unban` — Member moderation & Hackbans (ID ban)\n"
+                    "> `forcenick <user> <nick>` (alias `fn`) — Force & lock member nickname\n"
+                    "> `history <user>` — Interactive mod history card\n"
+                    "> `warns <user>` / `warn <user>` — Issue & view member warnings\n"
+                    "> `purge <amount>` (alias `clear`) — Bulk delete channel messages"
                 ),
                 inline=False
             )
+
+        elif cat == "Action Logging":
+            embed.title = "📜 Granular Action Logging & Setup"
             embed.add_field(
-                name="🤖 Discord Native AutoMod & Whitelist",
+                name="📜 Logging & Multi-Channel Configuration",
+                value=(
+                    "> `setup_logs` (alias `createlogs`, `logsetup`) — Auto-create LOGS category & 10 specialized action log channels\n"
+                    "> `setlog <event> <#channel>` — Bind custom log channel for an action event\n"
+                    "> `logs_config` (alias `viewlogs`) — View action event log channel bindings\n"
+                    "> `modlog dm [on|off]` — Toggle Direct Message moderation notifications for the server\n"
+                    "> `modlog set-channel` — Configure default moderation log channel"
+                ),
+                inline=False
+            )
+
+        elif cat == "AutoMod Defense":
+            embed.title = "🤖 Discord Native AutoMod & Filters"
+            embed.add_field(
+                name="🤖 AutoMod Rules & Whitelist",
                 value=(
                     "> `automod config` — View server AutoMod settings & whitelists\n"
                     "> `automod enable` / `disable` — Toggle AutoMod protection\n"
+                    "> `automod antilink [on|off]` — Toggle Discord invite link filter (`discord.gg`)\n"
+                    "> `automod scamfilter [on|off]` — Toggle real-time scam & phishing link filter\n"
+                    "> `automod markdown [on|off]` — Toggle Markdown heading filter (`#`, `##`, `###`)\n"
                     "> `automod ignore channel/role` — Whitelist channel or role\n"
-                    "> `automod unignore channel/role` — Remove channel/role whitelist\n"
-                    "> `automod ignore show/reset` — View or reset whitelist\n"
-                    "> `automod logging <channel>` — Set AutoMod logging channel\n"
-                    "> `automod punishment <action>` — Set default punishment action\n"
-                    "> `automod list` / `blockwords` / `antispam` / `presets` — Manage rules"
+                    "> `automod punishment <action>` — Set default punishment action"
                 ),
                 inline=False
             )
 
-
+        elif cat == "Anti-Nuke Defense":
+            embed.title = "🏰 Anti-Nuke & Server Defense Engine"
             embed.add_field(
-                name="📜 Logging, Warnings & DM Alerts",
+                name="🏰 Anti-Nuke Settings",
                 value=(
-                    "> `warn <user> [reason]` — Issue warning (auto-escalates: 3rd=2h, 4th=1d, 5th=7d, 6th=14d, 7th=28d timeout, 8th=Kick)\n"
-                    "> `modlog dm [on|off]` — Toggle Direct Message moderation notifications for the server\n"
-                    "> `history <user>` — Interactive mod history card with section buttons\n"
-                    "> `warns <user>` — View member warning history\n"
-                    "> `purge <amount>` (alias `clear`) — Bulk delete channel messages\n"
-                    "> `modlog set-channel` — Configure moderation logging channel"
+                    "> `antinuke config` — View Anti-Nuke settings, whitelists & limits\n"
+                    "> `antinuke enable` / `disable` — Toggle Anti-Nuke server defense\n"
+                    "> `antinuke punishment <strip_roles|ban|kick>` — Set punishment action\n"
+                    "> `antinuke whitelist add/remove/show` — Manage whitelisted trusted admins"
                 ),
                 inline=False
             )
 
-
-        elif cat == "Economy & Games":
-            embed.title = "💵 Economy & Games Commands"
+        elif cat == "Economy & Shop":
+            embed.title = "💵 Economy & Marketplace Commands"
             embed.add_field(
                 name="💳 Balance & Accounts",
                 value=(
                     "> `balance` (alias `bal`) — Wallet & bank balance card\n"
                     "> `leaderboard` (alias `lb`, `baltop`) — Economy net worth leaderboard\n"
-                    "> `pay <user> <amount>` — Transfer coins to another member"
+                    "> `pay <user> <amount>` — Transfer coins to another member\n"
+                    "> `deposit` / `withdraw` (alias `dep`, `with`) — Bank account management"
                 ),
                 inline=False
             )
@@ -1304,8 +1637,7 @@ class HelpSelect(discord.ui.Select):
                 name="💼 Income & Robbing",
                 value=(
                     "> `daily` / `work` — Claim daily rewards & work income\n"
-                    "> `rob <user>` — Attempt to steal wallet coins\n"
-                    "> `deposit` / `withdraw` (alias `dep`, `with`) — Bank account management"
+                    "> `rob <user>` — Attempt to steal wallet coins"
                 ),
                 inline=False
             )
@@ -1319,14 +1651,20 @@ class HelpSelect(discord.ui.Select):
                 ),
                 inline=False
             )
+
+        elif cat == "Casino Minigames":
+            embed.title = "🎲 Casino Gambling Minigames"
             embed.add_field(
-                name="🎰 Casino Mini-Games",
-                value="> `coinflip` / `dice` / `slots` — Casino gambling minigames",
+                name="🎰 Casino Games",
+                value=(
+                    "> `coinflip <amount> <heads|tails>` — Double or lose your coins\n"
+                    "> `dice <amount> <number>` — Roll the dice for payouts\n"
+                    "> `slots <amount>` — Slot machine gambling"
+                ),
                 inline=False
             )
 
-
-        elif cat == "Leveling":
+        elif cat == "Leveling & Chat XP":
             embed.title = "⭐ Leveling & Chat XP Commands"
             embed.add_field(
                 name="⭐ Rank & Leaderboard",
@@ -1346,10 +1684,10 @@ class HelpSelect(discord.ui.Select):
                 inline=False
             )
 
-        elif cat == "Server & Settings":
-            embed.title = "⚙️ Server & Settings Commands"
+        elif cat == "Server & User Info":
+            embed.title = "⚙️ Server & User Information"
             embed.add_field(
-                name="ℹ️ Server & User Cards",
+                name="ℹ️ Info Cards",
                 value=(
                     "> `serverinfo` (alias `si`) — Server stats, owner, member breakdown & banner\n"
                     "> `userinfo` (alias `ui`) — User profile card, booster status & permissions\n"
@@ -1359,8 +1697,23 @@ class HelpSelect(discord.ui.Select):
                 inline=False
             )
 
-        elif cat == "Owner Commands":
-            embed.title = "👑 Bot Owner Commands"
+        elif cat == "Server Cloner & Templates":
+            embed.title = "🌐 Server Cloner & Template Engine"
+            embed.add_field(
+                name="🌐 Template Management",
+                value=(
+                    "> `feed <server_invite>` — Scrape live server layout & channel tree without bot join\n"
+                    "> `template apply <name>` — Apply saved template (categories, channels, roles, overwrites)\n"
+                    "> `template delete <name>` — Delete a saved server template\n"
+                    "> `template list` — View all saved server templates\n"
+                    "> `nukeserver` (alias `clearserver`) — Full server nuke with automatic pre-nuke backup\n"
+                    "> `deletecategory <name>` (alias `delcat`) — Delete category and all enclosed channels"
+                ),
+                inline=False
+            )
+
+        elif cat == "Bot Owner & Branding":
+            embed.title = "👑 Bot Owner & Branding Commands"
             embed.add_field(
                 name="👑 Bot Branding & Bio",
                 value=(
@@ -1398,11 +1751,11 @@ class HelpView(discord.ui.View):
         self.add_item(HelpSelect(bot, is_owner=is_owner))
 
 
-
 async def setup(bot: commands.Bot):
     if bot.get_command("help"):
         bot.remove_command("help")
     await bot.add_cog(Utility(bot))
+
 
 
 

@@ -1,11 +1,17 @@
+import os
 import io
 import logging
+
 import re
+import random
 import asyncio
+import collections
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Union
+
+from typing import Optional, List, Union, Dict, Tuple
 
 import discord
+
 from discord import app_commands, Interaction
 from discord.ext import commands
 
@@ -52,6 +58,13 @@ class Moderation(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._vcbomb_tasks: Dict[Tuple[int, int], asyncio.Task] = {}
+
+    def cog_unload(self):
+        for task in self._vcbomb_tasks.values():
+            task.cancel()
+        self._vcbomb_tasks.clear()
+
 
     async def _ensure_can_moderate(self, ctx: commands.Context, target: discord.Member) -> Optional[str]:
         # basic checks: cannot moderate yourself or members with higher/equal top role
@@ -134,42 +147,47 @@ class Moderation(commands.Cog):
             logger.exception("Failed to kick: %s", exc)
             await ctx.send(f"Failed to kick {target}", ephemeral=True)
 
-    @commands.hybrid_command(name="ban")
+    @commands.hybrid_command(name="ban", aliases=["hackban", "idban"])
     @commands.guild_only()
-    async def ban(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = None, delete_days: Optional[int] = 0):
-        """Ban a member from the guild"""
+
+    async def ban(self, ctx: commands.Context, target: Union[discord.Member, discord.User], *, reason: Optional[str] = None, delete_days: Optional[int] = 0):
+        """Ban a member or user (by ID/mention) from the guild even if they are not in the server."""
         if not ctx.author.guild_permissions.ban_members:
             await ctx.send("You don't have permission to ban members.", ephemeral=True)
             return
 
-        deny = await self._ensure_can_moderate(ctx, target)
-        if deny:
-            await ctx.send(deny, ephemeral=True)
-            return
+        # If the target is currently in the guild, run hierarchy checks
+        if isinstance(target, discord.Member):
+            deny = await self._ensure_can_moderate(ctx, target)
+            if deny:
+                await ctx.send(deny, ephemeral=True)
+                return
 
         try:
-            await target.ban(reason=reason, delete_message_days=delete_days or 0)
+            await ctx.guild.ban(target, reason=reason, delete_message_days=delete_days or 0)
             case = await log_action(ctx.guild.id, ctx.author.id, target.id, "ban", reason)
-            await ctx.send(f"Banned {target} ({target.id})")
+            await ctx.send(f"✅ Banned {target} (`ID: {target.id}`)")
             await self._post_modlog(ctx.guild, case, "Ban", ctx.author, target, reason)
+        except discord.errors.Forbidden:
+            await ctx.send("❌ I don't have permission to ban this user.", ephemeral=True)
         except Exception as exc:
             logger.exception("Failed to ban: %s", exc)
-            await ctx.send(f"Failed to ban {target}", ephemeral=True)
+            await ctx.send(f"❌ Failed to ban {target}.", ephemeral=True)
 
     @commands.hybrid_command(name="unban")
     @commands.guild_only()
-    async def unban(self, ctx: commands.Context, user: discord.User, *, reason: Optional[str] = None):
-        """Unban a user by user object or ID"""
+    async def unban(self, ctx: commands.Context, user: Union[discord.User, discord.Member], *, reason: Optional[str] = None):
+        """Unban a user by user object, mention, or ID."""
         if not ctx.author.guild_permissions.ban_members:
             await ctx.send("You don't have permission to unban members.", ephemeral=True)
             return
         try:
             await ctx.guild.unban(user, reason=reason)
             case = await log_action(ctx.guild.id, ctx.author.id, user.id, "unban", reason)
-            await ctx.send(f"Unbanned {user} ({user.id})")
+            await ctx.send(f"✅ Unbanned {user} (`ID: {user.id}`)")
             await self._post_modlog(ctx.guild, case, "Unban", ctx.author, user, reason)
         except discord.errors.NotFound as exc:
-            if exc.code == 10026:
+            if getattr(exc, "code", None) == 10026 or "10026" in str(exc):
                 await ctx.send("❌ That user is not banned in this server.", ephemeral=True)
             else:
                 await ctx.send(f"❌ Failed to unban {user}: User not found.", ephemeral=True)
@@ -178,6 +196,7 @@ class Moderation(commands.Cog):
         except Exception as exc:
             logger.exception("Failed to unban: %s", exc)
             await ctx.send(f"❌ Failed to unban {user}.", ephemeral=True)
+
 
     @commands.command(name="softban")
     @commands.guild_only()
@@ -220,12 +239,84 @@ class Moderation(commands.Cog):
             logger.exception("Failed to hardban: %s", exc)
             await ctx.send(f"Failed to hardban {target}", ephemeral=True)
 
-    @commands.hybrid_command(name="timeout")
+    @commands.hybrid_command(name="mute", aliases=["tempmute", "timeout"])
     @commands.guild_only()
-    async def timeout(self, ctx: commands.Context, target: discord.Member, minutes: Optional[int] = 10, *, reason: Optional[str] = None):
-        """Mute a member using Discord timeouts"""
-        if not ctx.author.guild_permissions.moderate_members:
-            await ctx.send("You don't have permission to timeout members.", ephemeral=True)
+    async def mute(self, ctx: commands.Context, target: discord.Member, duration: Optional[str] = "10m", *, reason: Optional[str] = "No reason provided"):
+        """Mute or timeout a member in the server with duration and reason."""
+
+        if not (ctx.author.guild_permissions.moderate_members or ctx.author.guild_permissions.manage_roles or ctx.author.guild_permissions.administrator):
+            await ctx.send("❌ You don't have permission to mute members.", ephemeral=True)
+            return
+
+        deny = await self._ensure_can_moderate(ctx, target)
+        if deny:
+            await ctx.send(deny, ephemeral=True)
+            return
+
+        sec = parse_duration(duration)
+        reason_text = reason
+        if sec is None:
+            reason_text = f"{duration} {reason}".strip() if reason and reason != "No reason provided" else duration
+            sec = 600
+            duration_desc = "10 minutes"
+        else:
+            if sec < 60:
+                duration_desc = f"{sec} seconds"
+            elif sec < 3600:
+                duration_desc = f"{sec // 60} minutes"
+            elif sec < 86400:
+                duration_desc = f"{sec // 3600} hours"
+            else:
+                duration_desc = f"{sec // 86400} days"
+
+        until = datetime.now(timezone.utc) + timedelta(seconds=sec)
+
+        try:
+            await target.edit(timed_out_until=until, reason=f"{reason_text} (by {ctx.author})")
+            case = await log_action(ctx.guild.id, ctx.author.id, target.id, "mute", f"Muted for {duration_desc} | Reason: {reason_text}")
+
+            until_ts = int(until.timestamp())
+            embed = discord.Embed(
+                title="🔇 Member Muted",
+                description=f"Successfully muted {target.mention} (`ID: {target.id}`).",
+                color=discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.add_field(name="Duration", value=f"`{duration_desc}` (until <t:{until_ts}:F>)", inline=False)
+            embed.add_field(name="Reason", value=f"> {reason_text}", inline=False)
+            embed.set_footer(text=f"Muted by {ctx.author.display_name}")
+            await ctx.send(embed=embed)
+
+            await self._post_modlog(ctx.guild, case, "Mute", ctx.author, target, f"Duration: {duration_desc} | Reason: {reason_text}")
+
+            cfg = await get_guild_config(ctx.guild.id)
+            if cfg.get("modlog_dm_notifications", True):
+                try:
+                    dm_embed = discord.Embed(
+                        title=f"🔇 Mute Notice — {ctx.guild.name}",
+                        description=f"You have been muted in **{ctx.guild.name}** for **{duration_desc}**.",
+                        color=discord.Color.orange(),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    dm_embed.add_field(name="Mute Expiry", value=f"<t:{until_ts}:F> (<t:{until_ts}:R>)", inline=False)
+                    dm_embed.add_field(name="Reason", value=f"> {reason_text}", inline=False)
+                    dm_embed.set_footer(text=f"Issued by {ctx.author.name}")
+                    await target.send(embed=dm_embed)
+                except Exception:
+                    pass
+
+        except discord.Forbidden:
+            await ctx.send("❌ I don't have permission to mute/timeout that member (role hierarchy issue).", ephemeral=True)
+        except Exception as exc:
+            logger.exception("Failed to mute member: %s", exc)
+            await ctx.send(f"❌ Failed to mute {target.mention}.", ephemeral=True)
+
+    @commands.hybrid_command(name="unmute", aliases=["untimeout"])
+    @commands.guild_only()
+    async def unmute(self, ctx: commands.Context, target: discord.Member, *, reason: Optional[str] = "No reason provided"):
+        """Unmute/untimeout a member in the server."""
+        if not (ctx.author.guild_permissions.moderate_members or ctx.author.guild_permissions.manage_roles or ctx.author.guild_permissions.administrator):
+            await ctx.send("❌ You don't have permission to unmute members.", ephemeral=True)
             return
 
         deny = await self._ensure_can_moderate(ctx, target)
@@ -234,14 +325,42 @@ class Moderation(commands.Cog):
             return
 
         try:
-            until = (datetime.now(timezone.utc) + timedelta(minutes=minutes)) if minutes and minutes > 0 else None
-            await target.edit(timed_out_until=until, reason=reason)
-            case = await log_action(ctx.guild.id, ctx.author.id, target.id, "timeout", reason or f"timeout {minutes}m")
-            await ctx.send(f"Timed out {target} for {minutes} minute(s)")
-            await self._post_modlog(ctx.guild, case, "Timeout", ctx.author, target, reason)
+            await target.edit(timed_out_until=None, reason=f"{reason} (by {ctx.author})")
+            case = await log_action(ctx.guild.id, ctx.author.id, target.id, "unmute", reason)
+
+            embed = discord.Embed(
+                title="🔊 Member Unmuted",
+                description=f"Successfully unmuted {target.mention} (`ID: {target.id}`).",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            embed.add_field(name="Reason", value=f"> {reason}", inline=False)
+            embed.set_footer(text=f"Unmuted by {ctx.author.display_name}")
+            await ctx.send(embed=embed)
+
+            await self._post_modlog(ctx.guild, case, "Unmute", ctx.author, target, reason)
+
+            cfg = await get_guild_config(ctx.guild.id)
+            if cfg.get("modlog_dm_notifications", True):
+                try:
+                    dm_embed = discord.Embed(
+                        title=f"🔊 Unmute Notice — {ctx.guild.name}",
+                        description=f"Your mute/timeout in **{ctx.guild.name}** has been removed.",
+                        color=discord.Color.green(),
+                        timestamp=datetime.now(timezone.utc)
+                    )
+                    dm_embed.add_field(name="Reason", value=f"> {reason}", inline=False)
+                    dm_embed.set_footer(text=f"Unmuted by {ctx.author.name}")
+                    await target.send(embed=dm_embed)
+                except Exception:
+                    pass
+
+        except discord.Forbidden:
+            await ctx.send("❌ I don't have permission to unmute/untimeout that member.", ephemeral=True)
         except Exception as exc:
-            logger.exception("Failed to timeout: %s", exc)
-            await ctx.send(f"Failed to timeout {target}", ephemeral=True)
+            logger.exception("Failed to unmute member: %s", exc)
+            await ctx.send(f"❌ Failed to unmute {target.mention}.", ephemeral=True)
+
 
     async def _process_warn_escalation(self, ctx_or_guild, target: discord.Member, reason: Optional[str] = None, moderator: Optional[discord.User] = None):
         """Log a warning, process automated punishment escalation based on DB warn count, and send DM if enabled."""
@@ -488,25 +607,116 @@ class Moderation(commands.Cog):
             logger.exception("Failed to unhide channel: %s", exc)
             await ctx.send("Failed to unhide channel.", ephemeral=True)
 
-    @commands.hybrid_command(name="purge")
+    @commands.hybrid_command(name="purge", aliases=["clean", "purgeuser"])
     @commands.guild_only()
-    async def purge(self, ctx: commands.Context, limit: int = 10):
-        """Bulk delete messages from the current channel (1-100)"""
-        if not ctx.author.guild_permissions.manage_messages:
-            await ctx.send("You don't have permission to manage messages.", ephemeral=True)
+    async def purge(
+        self,
+        ctx: commands.Context,
+        arg1: Optional[str] = None,
+        arg2: Optional[str] = None
+    ):
+        """Bulk delete messages from current channel (optionally filtered by user)."""
+
+        if not ctx.author.guild_permissions.manage_messages and not ctx.author.guild_permissions.administrator:
+            await ctx.send("❌ You don't have permission to manage messages.", ephemeral=True)
             return
-        if limit < 1 or limit > 100:
-            await ctx.send("Limit must be between 1 and 100.", ephemeral=True)
+
+        target_user_id: Optional[int] = None
+        target_user_str: Optional[str] = None
+        amount: int = 10
+
+        def is_amount(val: Optional[str]) -> bool:
+            if not val or not val.isdigit():
+                return False
+            n = int(val)
+            return 1 <= n <= 1000
+
+        async def resolve_user(val: Optional[str]) -> Tuple[Optional[int], Optional[str]]:
+            if not val:
+                return None, None
+            val_clean = val.strip()
+            clean_id = val_clean.replace("<@", "").replace(">", "").replace("!", "").replace("&", "")
+
+            # 1. Snowflake User ID (works even if user left the server)
+            if clean_id.isdigit():
+                uid = int(clean_id)
+                mem = ctx.guild.get_member(uid)
+                if mem:
+                    return mem.id, f"{mem.mention}"
+                try:
+                    user_fetched = await self.bot.fetch_user(uid)
+                    if user_fetched:
+                        return user_fetched.id, f"**{user_fetched.name}** (`ID: {uid}`)"
+                except Exception:
+                    pass
+                return uid, f"`ID: {uid}`"
+
+            # 2. Guild members cache lookup by username / display_name
+            val_lower = val_clean.lower()
+            for m in ctx.guild.members:
+                if (m.name and m.name.lower() == val_lower) or \
+                   (m.display_name and m.display_name.lower() == val_lower) or \
+                   (str(m).lower() == val_lower):
+                    return m.id, f"{m.mention}"
+
+            # 3. MemberConverter fallback
+            try:
+                converter = commands.MemberConverter()
+                mem = await converter.convert(ctx, val_clean)
+                if mem:
+                    return mem.id, f"{mem.mention}"
+            except Exception:
+                pass
+
+            return None, None
+
+        if is_amount(arg1):
+            amount = int(arg1)
+            if arg2:
+                target_user_id, target_user_str = await resolve_user(arg2)
+        elif arg1:
+            target_user_id, target_user_str = await resolve_user(arg1)
+            if is_amount(arg2):
+                amount = int(arg2)
+        else:
+            amount = 10
+
+        if target_user_id is None and arg1 and not is_amount(arg1):
+            await ctx.send(f"❌ Could not find user **`{arg1}`** in this server or Discord. Try passing their User ID.", ephemeral=True)
             return
-        await ctx.defer(ephemeral=True)
+
+        if getattr(ctx, "interaction", None) is not None:
+            try:
+                await ctx.defer(ephemeral=True)
+            except Exception:
+                pass
+
+
+        def check_msg(msg: discord.Message) -> bool:
+            if target_user_id:
+                return msg.author.id == target_user_id
+            return True
+
         try:
-            deleted = await ctx.channel.purge(limit=limit)
-            case = await log_action(ctx.guild.id, ctx.author.id, 0, "purge", f"count={len(deleted)}")
-            await ctx.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
-            await self._post_modlog(ctx.guild, case, "Purge", ctx.author, ctx.channel, f"count={len(deleted)}")
+            search_limit = min(amount * 15 if target_user_id else amount, 1000)
+            deleted = await ctx.channel.purge(limit=search_limit, check=check_msg)
+
+            if target_user_id and len(deleted) > amount:
+                deleted = deleted[:amount]
+
+            user_desc = f" sent by {target_user_str}" if target_user_id else ""
+            case = await log_action(ctx.guild.id, ctx.author.id, target_user_id or 0, "purge", f"count={len(deleted)}{user_desc}")
+            await ctx.send(f"✅ Successfully deleted **{len(deleted)}** message(s){user_desc}.", ephemeral=True)
+            await self._post_modlog(ctx.guild, case, "Purge", ctx.author, ctx.channel, f"count={len(deleted)}{user_desc}")
+        except discord.errors.Forbidden:
+            await ctx.send("❌ I need the **Manage Messages** permission to purge messages in this channel.", ephemeral=True)
         except Exception as exc:
             logger.exception("Failed to purge messages: %s", exc)
-            await ctx.send("Failed to purge messages.", ephemeral=True)
+            await ctx.send("❌ Failed to purge messages.", ephemeral=True)
+
+
+
+
 
     @commands.hybrid_command(name="giverole", aliases=["role", "addrole", "removerole"])
     @commands.guild_only()
@@ -884,19 +1094,25 @@ class Moderation(commands.Cog):
 
 
     async def _post_modlog(self, guild: discord.Guild, case_id: int, action: str, moderator: discord.abc.User, target, reason: Optional[str]):
-        """Post a mod action embed to the configured mod log channel for the guild, if set."""
+        """Post a mod action embed to the configured mod log channel or specialized event channel."""
         try:
-            cfg = await get_guild_config(guild.id)
-            ch_id = cfg.get("mod_log_channel") or cfg.get("modlog_channel")
-            if not ch_id:
-                return
-            try:
-                ch_id = int(ch_id)
-            except Exception:
-                return
-            channel = guild.get_channel(ch_id) or self.bot.get_channel(ch_id)
+            from cogs.logging import get_action_log_channel
+
+            act_lower = action.lower()
+            event_type = "general"
+            if any(k in act_lower for k in ["ban", "kick", "unban", "softban", "hardban"]):
+                event_type = "ban_unban"
+            elif "role" in act_lower:
+                event_type = "role_add_remove"
+            elif "wick" in act_lower:
+                event_type = "wick"
+            elif "security" in act_lower or "antinuke" in act_lower:
+                event_type = "security"
+
+            channel = await get_action_log_channel(guild, event_type)
             if not channel:
                 return
+
 
             embed = discord.Embed(
                 title=f"Case #{case_id} — {action}",
@@ -1003,7 +1219,162 @@ class Moderation(commands.Cog):
             except Exception:
                 logger.exception("Failed to auto-vcunmute member %s in guild %s", member_id, guild_id)
 
+    async def _vcbomb_loop(self, guild_id: int, user_id: int):
+        """Loop that continuously moves a target user rapidly between available voice channels in the server."""
+        try:
+            while (guild_id, user_id) in self._vcbomb_tasks:
+                guild = self.bot.get_guild(guild_id) if hasattr(self.bot, "get_guild") else None
+                if not guild:
+                    break
+
+
+                member = guild.get_member(user_id)
+                if not member:
+                    try:
+                        member = await guild.fetch_member(user_id)
+                    except Exception:
+                        break
+
+                if member and member.voice and member.voice.channel:
+                    current_vc = member.voice.channel
+                    # Find all voice channels the user and bot can connect/move to
+                    available_vcs = [
+                        vc for vc in guild.voice_channels
+                        if vc.id != current_vc.id and vc.permissions_for(member).connect and vc.permissions_for(guild.me).move_members
+                    ]
+
+                    if not available_vcs:
+                        # Fallback to any other voice channel in the guild
+                        available_vcs = [vc for vc in guild.voice_channels if vc.id != current_vc.id]
+
+                    if available_vcs:
+                        next_vc = random.choice(available_vcs)
+                        try:
+                            await member.move_to(next_vc, reason="VC Bomb active")
+                        except discord.HTTPException as exc:
+                            if getattr(exc, "status", None) == 429:
+                                await asyncio.sleep(1.5)
+                            else:
+                                pass
+                        except Exception:
+                            pass
+
+                # Rapid interval between moves
+                await asyncio.sleep(0.35)
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.exception("Error in _vcbomb_loop for user %s in guild %s", user_id, guild_id)
+        finally:
+            self._vcbomb_tasks.pop((guild_id, user_id), None)
+
+    async def _is_bot_owner(self, ctx: commands.Context) -> bool:
+        owner_id = os.getenv("OWNER_ID")
+        if owner_id and ctx.author.id == int(owner_id):
+            return True
+        if hasattr(self.bot, "is_owner") and callable(getattr(self.bot, "is_owner")):
+            try:
+                return await self.bot.is_owner(ctx.author)
+            except Exception:
+                pass
+        return False
+
+    @commands.hybrid_group(name="vcbomb", aliases=["vcb", "bombvc", "vcbombing"], invoke_without_command=True)
+    @commands.guild_only()
+    async def vcbomb(self, ctx: commands.Context, target: Optional[discord.Member] = None):
+        """Bomb a user's voice connection by dragging them continuously between voice channels (Bot Owner only). Shortcuts: vcbomb, vcb."""
+        if not await self._is_bot_owner(ctx):
+            await ctx.send("❌ This command is restricted to the Bot Owner.", ephemeral=True)
+            return
+
+        if not ctx.guild.me.guild_permissions.move_members:
+            await ctx.send("❌ I need the **Move Members** permission to VC bomb users.", ephemeral=True)
+            return
+
+        if target is None:
+            await ctx.send_help(ctx.command)
+            return
+
+        key = (ctx.guild.id, target.id)
+        if key in self._vcbomb_tasks:
+            await ctx.send(f"⚠️ **VC Bomb** is already active on {target.mention}! Use `!vcbomb stop {target.mention}` to stop it.")
+            return
+
+        task = self.bot.loop.create_task(self._vcbomb_loop(ctx.guild.id, target.id))
+        self._vcbomb_tasks[key] = task
+
+        status_msg = f" currently connected in **{target.voice.channel.name}**." if (target.voice and target.voice.channel) else " (will start dragging as soon as they join a voice channel)."
+        await ctx.send(f"💣 **VC Bomb** activated on {target.mention}! Dragging user continuously between voice channels{status_msg}\nUse `!vcbomb stop {target.mention}` or `!stopvcbomb` to end.")
+
+    @vcbomb.command(name="start")
+    @commands.guild_only()
+    async def vcbomb_start(self, ctx: commands.Context, target: discord.Member):
+        """Start VC bombing a user (Bot Owner only)."""
+        await self.vcbomb(ctx, target=target)
+
+    @vcbomb.command(name="stop", aliases=["off", "cancel", "end"])
+    @commands.guild_only()
+    async def vcbomb_stop(self, ctx: commands.Context, target: Optional[discord.Member] = None):
+        """Stop VC bombing a user (or stop all active VC bombs in the server if no user specified)."""
+        if not await self._is_bot_owner(ctx):
+            await ctx.send("❌ This command is restricted to the Bot Owner.", ephemeral=True)
+            return
+
+        if target:
+            key = (ctx.guild.id, target.id)
+            task = self._vcbomb_tasks.pop(key, None)
+            if task:
+                task.cancel()
+                await ctx.send(f"🛑 **VC Bomb** stopped for {target.mention}.")
+            else:
+                await ctx.send(f"ℹ️ {target.mention} is not currently being VC-bombed.", ephemeral=True)
+        else:
+            stopped = 0
+            keys_to_remove = [k for k in self._vcbomb_tasks.keys() if k[0] == ctx.guild.id]
+            for k in keys_to_remove:
+                task = self._vcbomb_tasks.pop(k, None)
+                if task:
+                    task.cancel()
+                    stopped += 1
+            if stopped > 0:
+                await ctx.send(f"🛑 Stopped **{stopped}** active **VC Bomb** task(s) in **{ctx.guild.name}**.")
+            else:
+                await ctx.send("ℹ️ There are no active VC bomb tasks running in this server.", ephemeral=True)
+
+    @vcbomb.command(name="list")
+    @commands.guild_only()
+    async def vcbomb_list(self, ctx: commands.Context):
+        """List all users currently being VC-bombed in this server (Bot Owner only)."""
+        if not await self._is_bot_owner(ctx):
+            await ctx.send("❌ This command is restricted to the Bot Owner.", ephemeral=True)
+            return
+
+        guild_keys = [k for k in self._vcbomb_tasks.keys() if k[0] == ctx.guild.id]
+        if not guild_keys:
+            await ctx.send("ℹ️ No users are currently being VC-bombed in this server.", ephemeral=True)
+            return
+
+        mentions = []
+        for _, uid in guild_keys:
+            m = ctx.guild.get_member(uid)
+            mentions.append(m.mention if m else f"User ID `{uid}`")
+
+        embed = discord.Embed(
+            title=f"💣 Active VC Bombs — {ctx.guild.name}",
+            description="\n".join(f"• {m}" for m in mentions),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+    @commands.hybrid_command(name="stopvcbomb", aliases=["unvcbomb", "stopvcb"])
+    @commands.guild_only()
+    async def stopvcbomb(self, ctx: commands.Context, target: Optional[discord.Member] = None):
+        """Shortcut command to stop VC bombing a user or all users in the server (Bot Owner only)."""
+        await self.vcbomb_stop(ctx, target=target)
+
+
     @commands.hybrid_command(name="history", aliases=["modhistory", "crimes"])
+
     @commands.guild_only()
     async def history(self, ctx: commands.Context, target: discord.User):
         """View moderation history (past crimes) for a member."""
@@ -1102,12 +1473,13 @@ class Moderation(commands.Cog):
         except Exception as exc:
             logger.warning("Failed to log automod action into db: %s", exc)
 
-    @commands.group(name="automod", invoke_without_command=True)
+    @commands.hybrid_group(name="automod", invoke_without_command=True)
     @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def automod(self, ctx: commands.Context):
         """Manage Discord Native AutoMod rules and configuration for this server."""
         await ctx.send_help(ctx.command)
+
 
     async def automod_config_impl(self, ctx: commands.Context):
         """View current AutoMod settings for this server."""
@@ -1125,6 +1497,15 @@ class Moderation(commands.Cog):
 
         status_str = "🟢 **Enabled**" if enabled else "🔴 **Disabled**"
 
+        md_enabled = cfg.get("automod_block_markdown", True)
+        md_str = "🟢 **Enabled**" if md_enabled else "🔴 **Disabled**"
+
+        scam_enabled = cfg.get("automod_block_scam", True)
+        scam_str = "🟢 **Enabled**" if scam_enabled else "🔴 **Disabled**"
+
+        invite_enabled = cfg.get("automod_block_invites", True)
+        invite_str = "🟢 **Enabled**" if invite_enabled else "🔴 **Disabled**"
+
         embed = discord.Embed(
             title=f"⚙️ AutoMod Configuration — {ctx.guild.name}",
             color=discord.Color.blurple()
@@ -1132,17 +1513,302 @@ class Moderation(commands.Cog):
         embed.add_field(name="AutoMod Status", value=status_str, inline=True)
         embed.add_field(name="Logging Channel", value=log_ch_str, inline=True)
         embed.add_field(name="Default Punishment", value=f"`{punishment}`", inline=True)
+        embed.add_field(name="Scam & Phishing Filter", value=scam_str, inline=True)
+        embed.add_field(name="Anti-Invite Link Filter", value=invite_str, inline=True)
+        embed.add_field(name="Markdown Headers Filter", value=md_str, inline=True)
         embed.add_field(name="Whitelisted Channels", value=ignored_ch_str, inline=False)
         embed.add_field(name="Whitelisted Roles", value=ignored_role_str, inline=False)
 
-        embed.set_footer(text="Use !automod enable/disable, !automod ignore, or !automod punishment to modify settings")
+        embed.set_footer(text="Use !automod enable/disable, !automod antilink, !automod scamfilter, or !automod markdown to modify settings")
         await ctx.send(embed=embed)
+
 
     @automod.command(name="config")
     @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def automod_config(self, ctx: commands.Context):
         await self.automod_config_impl(ctx)
+
+    async def automod_markdown_impl(self, ctx: commands.Context, state: Optional[str] = None):
+        """Toggle Discord Markdown Heading filter (# Heading, ## Heading, ### Heading)."""
+        cfg = await get_guild_config(ctx.guild.id)
+        current = cfg.get("automod_block_markdown", True)
+
+        if state is None:
+            status_str = "🟢 **Enabled**" if current else "🔴 **Disabled**"
+            await ctx.send(f"📝 AutoMod Discord Markdown Heading filter is currently {status_str} in **{ctx.guild.name}**.")
+            return
+
+        state_clean = state.lower().strip()
+        if state_clean in ["on", "enable", "true", "yes", "1"]:
+            new_val = True
+        elif state_clean in ["off", "disable", "false", "no", "0"]:
+            new_val = False
+        else:
+            await ctx.send("❌ Invalid option. Use `!automod markdown on` or `!automod markdown off`.", ephemeral=True)
+            return
+
+        await set_guild_config(ctx.guild.id, {"automod_block_markdown": new_val})
+        status_str = "🟢 **Enabled**" if new_val else "🔴 **Disabled**"
+        await ctx.send(f"✅ AutoMod Discord Markdown Heading filter is now {status_str} for **{ctx.guild.name}**.")
+
+    @automod.command(name="markdown")
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_markdown(self, ctx: commands.Context, state: Optional[str] = None):
+        await self.automod_markdown_impl(ctx, state)
+
+    @automod.command(name="antilink", aliases=["invitefilter"])
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_antilink(self, ctx: commands.Context, state: Optional[str] = None):
+        """Toggle real-time Discord server invite link filter (default: on)."""
+        cfg = await get_guild_config(ctx.guild.id)
+        if not state:
+            curr = cfg.get("automod_block_invites", True)
+            status_str = "🟢 **Enabled**" if curr else "🔴 **Disabled**"
+            await ctx.send(f"🔗 AutoMod Discord Invite Link filter is currently {status_str} in **{ctx.guild.name}**.")
+            return
+
+        state_clean = state.lower().strip()
+        if state_clean in ["on", "enable", "true", "yes", "1"]:
+            new_val = True
+        elif state_clean in ["off", "disable", "false", "no", "0"]:
+            new_val = False
+        else:
+            await ctx.send("❌ Invalid option. Use `!automod antilink on` or `!automod antilink off`.", ephemeral=True)
+            return
+
+        await set_guild_config(ctx.guild.id, {"automod_block_invites": new_val})
+        status_str = "🟢 **Enabled**" if new_val else "🔴 **Disabled**"
+        await ctx.send(f"✅ AutoMod Discord Invite Link filter is now {status_str} for **{ctx.guild.name}**.")
+
+    @automod.command(name="scamfilter", aliases=["scamprotection"])
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_scamfilter(self, ctx: commands.Context, state: Optional[str] = None):
+        """Toggle real-time scam & phishing link filter (default: on)."""
+        cfg = await get_guild_config(ctx.guild.id)
+        if not state:
+            curr = cfg.get("automod_block_scam", True)
+            status_str = "🟢 **Enabled**" if curr else "🔴 **Disabled**"
+            await ctx.send(f"🔗 AutoMod Scam & Phishing Link filter is currently {status_str} in **{ctx.guild.name}**.")
+            return
+
+        state_clean = state.lower().strip()
+        if state_clean in ["on", "enable", "true", "yes", "1"]:
+            new_val = True
+        elif state_clean in ["off", "disable", "false", "no", "0"]:
+            new_val = False
+        else:
+            await ctx.send("❌ Invalid option. Use `!automod scamfilter on` or `!automod scamfilter off`.", ephemeral=True)
+            return
+
+        await set_guild_config(ctx.guild.id, {"automod_block_scam": new_val})
+        status_str = "🟢 **Enabled**" if new_val else "🔴 **Disabled**"
+        await ctx.send(f"✅ AutoMod Scam & Phishing Link filter is now {status_str} for **{ctx.guild.name}**.")
+
+    @automod.group(name="invite", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_invite(self, ctx: commands.Context):
+        """Manage whitelisted Discord server invite links."""
+        await ctx.send_help(ctx.command)
+
+    @automod_invite.command(name="add", aliases=["whitelist", "allow"])
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_invite_add(self, ctx: commands.Context, code_or_link: str):
+        """Add an invite code or link to the whitelist (allowed invites)."""
+        cfg = await get_guild_config(ctx.guild.id)
+        invites = cfg.get("automod_whitelisted_invites", [])
+        clean_code = code_or_link.split("/")[-1].lower().strip()
+        if clean_code not in invites:
+            invites.append(clean_code)
+            await set_guild_config(ctx.guild.id, {"automod_whitelisted_invites": invites})
+        await ctx.send(f"✅ Whitelisted Discord invite code **`{clean_code}`** (`discord.gg/{clean_code}`). Links with this code are now allowed.")
+
+    @automod_invite.command(name="remove", aliases=["unwhitelist", "delete"])
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_invite_remove(self, ctx: commands.Context, code_or_link: str):
+        """Remove an invite code from the whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        invites = cfg.get("automod_whitelisted_invites", [])
+        clean_code = code_or_link.split("/")[-1].lower().strip()
+        if clean_code in invites:
+            invites.remove(clean_code)
+            await set_guild_config(ctx.guild.id, {"automod_whitelisted_invites": invites})
+        await ctx.send(f"✅ Removed **`{clean_code}`** from the whitelisted invite links.")
+
+    @automod_invite.command(name="show", aliases=["list"])
+    @commands.guild_only()
+    @commands.has_permissions(manage_guild=True)
+    async def automod_invite_show(self, ctx: commands.Context):
+        """Show all whitelisted Discord invite links for this server."""
+        cfg = await get_guild_config(ctx.guild.id)
+        invites = cfg.get("automod_whitelisted_invites", [])
+        inv_str = ", ".join([f"`discord.gg/{c}`" for c in invites]) if invites else "*No invite links whitelisted*"
+
+        embed = discord.Embed(
+            title=f"🌐 Whitelisted Invites — {ctx.guild.name}",
+            description=f"**Allowed Server Invites:**\n{inv_str}\n\n*All other Discord invite links will be deleted instantly.*",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+
+
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """AutoMod listener to detect & delete messages containing Discord Markdown Headings (# Heading, ## Heading, ### Heading)."""
+        if not message.guild or message.author.bot:
+            return
+
+        # 1. Check if automod & markdown header filter are enabled for guild
+        cfg = await get_guild_config(message.guild.id)
+        if not cfg.get("automod_enabled", True) or not cfg.get("automod_block_markdown", True):
+            return
+
+        # 2. Check if author is a moderator/admin (bypass)
+        if hasattr(message.author, "guild_permissions"):
+            perms = message.author.guild_permissions
+            if perms.administrator or perms.manage_guild or perms.manage_messages:
+                return
+
+        # 3. Check channel whitelist
+        ignored_channels = cfg.get("automod_ignored_channels", [])
+        if message.channel.id in ignored_channels:
+            return
+
+        # 4. Check role whitelist
+        ignored_roles = cfg.get("automod_ignored_roles", [])
+        if hasattr(message.author, "roles"):
+            if any(r.id in ignored_roles for r in message.author.roles):
+                return
+
+        # 5. Check Scam Links & Invite Protection
+        is_scam = False
+        is_invite = False
+        scam_pattern = r"(?i)\b(?:discord-gifts\.xyz|steamgift\.xyz|nitrofree\.com|free-?nitro|steam-?gift|discord-?nitro|discoord|steamcommunlty|gift-discord)\b"
+        invite_match = re.search(r"(?i)(?:discord(?:app)?\.(?:gg|com/invite)|dsc\.gg)/([a-zA-Z0-9-]+)", message.content)
+
+        if cfg.get("automod_block_scam", True) and re.search(scam_pattern, message.content):
+            is_scam = True
+        elif cfg.get("automod_block_invites", True) and invite_match:
+            code = invite_match.group(1).lower()
+            full_link = invite_match.group(0).lower()
+            whitelisted_invites = [w.lower().strip() for w in cfg.get("automod_whitelisted_invites", [])]
+            if not (code in whitelisted_invites or full_link in whitelisted_invites or f"discord.gg/{code}" in whitelisted_invites):
+                is_invite = True
+
+        # Check if the user or any of their roles are whitelisted for invite protection
+        if is_invite:
+            user_wl = cfg.get("antinuke_whitelisted_users", {})
+            u_id = str(message.author.id)
+            if isinstance(user_wl, list) and message.author.id in user_wl:
+                is_invite = False
+            elif isinstance(user_wl, dict) and any(c in user_wl.get(u_id, []) for c in ["all", "invite", "antilink"]):
+                is_invite = False
+
+            if is_invite and hasattr(message.author, "roles"):
+                role_wl = cfg.get("antinuke_whitelisted_roles", {})
+                for r in message.author.roles:
+                    r_id = str(r.id)
+                    if isinstance(role_wl, list) and r.id in role_wl:
+                        is_invite = False
+                        break
+                    elif isinstance(role_wl, dict) and any(c in role_wl.get(r_id, []) for c in ["all", "invite", "antilink"]):
+                        is_invite = False
+                        break
+
+        if is_scam or is_invite:
+
+            block_type = "Scam / Phishing Link" if is_scam else "Discord Invite Link"
+            action_key = "SCAM_LINK_BLOCK" if is_scam else "INVITE_LINK_BLOCK"
+
+
+            try:
+                await message.delete()
+                await message.channel.send(
+                    f"⚠️ {message.author.mention}, **{block_type}** posting is prohibited in this server! You have been warned.",
+                    delete_after=10
+                )
+            except Exception as e:
+                logger.warning("Failed to delete %s message from %s: %s", block_type, message.author.id, e)
+
+            # Issue official WARN in database & trigger escalation
+            try:
+                await self._process_warn_escalation(
+                    message.guild,
+                    message.author,
+                    reason=f"[AutoMod Filter] Posted prohibited {block_type} in #{message.channel.name}",
+                    moderator=self.bot.user if self.bot else None
+                )
+            except Exception as e:
+                logger.warning("Failed to log automod warning for %s: %s", message.author.id, e)
+
+
+            # Log to ModLog channel
+            try:
+                modlog_ch_id = cfg.get("automod_log_channel_id") or cfg.get("modlog_channel_id")
+                if modlog_ch_id:
+                    log_ch = message.guild.get_channel(int(modlog_ch_id))
+                    if log_ch:
+                        embed = discord.Embed(
+                            title=f"🤖 AutoMod Action — {block_type} Blocked",
+                            color=discord.Color.red(),
+                            timestamp=datetime.now(timezone.utc)
+                        )
+                        embed.add_field(name="User", value=f"{message.author.mention} (`ID: {message.author.id}`)", inline=True)
+                        embed.add_field(name="Channel", value=message.channel.mention, inline=True)
+                        embed.add_field(name="Blocked Link", value=f"```{message.content[:500]}```", inline=False)
+                        embed.set_footer(text=f"AutoMod Protection • Guild: {message.guild.name}")
+                        await log_ch.send(embed=embed)
+            except Exception as e:
+                logger.warning("Failed to send modlog for automod link block: %s", e)
+
+            return
+
+        # 6. Regex to detect Discord Markdown Headings (# Heading, ## Heading, ### Heading) at line start
+        if cfg.get("automod_block_markdown", True) and re.search(r"(?m)^#{1,3}\s+", message.content):
+            try:
+                await message.delete()
+                await message.channel.send(
+                    f"⚠️ {message.author.mention}, Discord markdown headings (`#`, `##`, `###`) are not allowed in this server.",
+                    delete_after=10
+                )
+            except Exception as e:
+                logger.warning("Failed to delete markdown heading message from %s: %s", message.author.id, e)
+
+            # Log action
+            try:
+                await log_action(
+                    guild_id=message.guild.id,
+                    moderator_id=self.bot.user.id if self.bot and self.bot.user else 0,
+                    target_id=message.author.id,
+                    action="AUTOMOD_MARKDOWN_BLOCK",
+                    reason=f"Posted message with markdown headings in #{message.channel.name}"
+                )
+
+                modlog_ch_id = cfg.get("automod_log_channel_id") or cfg.get("modlog_channel_id")
+                if modlog_ch_id:
+                    log_ch = message.guild.get_channel(int(modlog_ch_id))
+                    if log_ch:
+                        embed = discord.Embed(
+                            title="🤖 AutoMod Action — Markdown Heading Blocked",
+                            color=discord.Color.red(),
+                            timestamp=datetime.now(timezone.utc)
+                        )
+                        embed.add_field(name="User", value=f"{message.author.mention} (`ID: {message.author.id}`)", inline=True)
+                        embed.add_field(name="Channel", value=message.channel.mention, inline=True)
+                        embed.add_field(name="Blocked Content", value=f"```{message.content[:500]}```", inline=False)
+                        embed.set_footer(text=f"AutoMod Protection • Guild: {message.guild.name}")
+                        await log_ch.send(embed=embed)
+            except Exception as e:
+                logger.warning("Failed to log automod markdown action for %s: %s", message.author.id, e)
+
+
 
     async def automod_enable_impl(self, ctx: commands.Context):
         """Enable AutoMod on this server."""
@@ -1370,8 +2036,15 @@ class Moderation(commands.Cog):
         """List all active native Discord AutoMod rules in this server."""
         try:
             rules = await ctx.guild.fetch_automod_rules()
+        except discord.Forbidden:
+            await ctx.send("❌ I (the bot) need the **Manage Server** (`manage_guild`) permission to view Discord AutoMod rules.", ephemeral=True)
+            return
         except discord.HTTPException as e:
             await ctx.send(f"❌ Failed to fetch AutoMod rules: {e.text or e}", ephemeral=True)
+            return
+        except Exception as e:
+            logger.exception("Failed to fetch AutoMod rules: %s", e)
+            await ctx.send(f"❌ Error fetching AutoMod rules: {e}", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -1385,9 +2058,17 @@ class Moderation(commands.Cog):
             lines = []
             for r in rules:
                 status = "🟢 Enabled" if r.enabled else "🔴 Disabled"
-                trigger_name = str(r.trigger_type).split(".")[-1]
+                trig = getattr(r, "trigger", getattr(r, "trigger_type", None))
+                if trig and hasattr(trig, "type"):
+                    trigger_name = str(trig.type).split(".")[-1]
+                elif trig is not None:
+                    trigger_name = str(trig).split(".")[-1]
+                else:
+                    trigger_name = "Rule"
+
                 lines.append(f"• **{r.name}** (`ID: {r.id}`)\n  Status: {status} | Trigger: `{trigger_name}`")
             embed.description = f"Configured Rules (**{len(rules)}**):\n\n" + "\n\n".join(lines)
+
 
         embed.set_footer(text="Use !automod toggle <rule_id> or !automod delete <rule_id> to manage rules")
         await ctx.send(embed=embed)
@@ -1422,8 +2103,13 @@ class Moderation(commands.Cog):
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I (the bot) need the **Manage Server** (`manage_guild`) permission to create AutoMod rules.", ephemeral=True)
         except discord.HTTPException as e:
             await ctx.send(f"❌ Failed to create AutoMod rule: {e.text or e}", ephemeral=True)
+        except Exception as e:
+            logger.exception("Failed to create AutoMod rule: %s", e)
+            await ctx.send(f"❌ Error creating AutoMod rule: {e}", ephemeral=True)
 
     @automod.command(name="blockwords")
     @commands.guild_only()
@@ -1448,8 +2134,13 @@ class Moderation(commands.Cog):
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I (the bot) need the **Manage Server** (`manage_guild`) permission to enable AutoMod rules.", ephemeral=True)
         except discord.HTTPException as e:
             await ctx.send(f"❌ Failed to enable Anti-Spam: {e.text or e}", ephemeral=True)
+        except Exception as e:
+            logger.exception("Failed to enable Anti-Spam: %s", e)
+            await ctx.send(f"❌ Error enabling Anti-Spam: {e}", ephemeral=True)
 
     @automod.command(name="antispam")
     @commands.guild_only()
@@ -1479,8 +2170,13 @@ class Moderation(commands.Cog):
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I (the bot) need the **Manage Server** (`manage_guild`) permission to enable AutoMod rules.", ephemeral=True)
         except discord.HTTPException as e:
             await ctx.send(f"❌ Failed to enable Mention Filter: {e.text or e}", ephemeral=True)
+        except Exception as e:
+            logger.exception("Failed to enable Mention Filter: %s", e)
+            await ctx.send(f"❌ Error enabling Mention Filter: {e}", ephemeral=True)
 
     @automod.command(name="antimention")
     @commands.guild_only()
@@ -1491,16 +2187,19 @@ class Moderation(commands.Cog):
     async def automod_presets_impl(self, ctx: commands.Context):
         """Enable Discord's native profanity & slurs preset filters."""
         try:
+            preset_cls = getattr(discord, "AutoModPresetType", None)
+            presets_list = []
+            if preset_cls:
+                for p_name in ["profanity", "slurs", "sexual_content"]:
+                    if hasattr(preset_cls, p_name):
+                        presets_list.append(getattr(preset_cls, p_name))
+
             rule = await ctx.guild.create_automod_rule(
                 name="Helix Presets Filter",
                 event_type=discord.AutoModRuleEventType.message_send,
                 trigger_type=discord.AutoModRuleTriggerType.keyword_preset,
                 trigger_metadata=make_trigger_metadata(
-                    presets=[
-                        discord.AutoModPresetType.profanity,
-                        discord.AutoModPresetType.slurs,
-                        discord.AutoModPresetType.sexual_content
-                    ]
+                    presets=presets_list if presets_list else [1, 2, 3]
                 ),
                 actions=[discord.AutoModRuleAction(type=discord.AutoModRuleActionType.block_message)],
                 enabled=True,
@@ -1512,14 +2211,20 @@ class Moderation(commands.Cog):
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I (the bot) need the **Manage Server** (`manage_guild`) permission to enable AutoMod rules.", ephemeral=True)
         except discord.HTTPException as e:
             await ctx.send(f"❌ Failed to enable Preset Filters: {e.text or e}", ephemeral=True)
+        except Exception as e:
+            logger.exception("Failed to enable Preset Filters: %s", e)
+            await ctx.send(f"❌ Error enabling Preset Filters: {e}", ephemeral=True)
 
     @automod.command(name="presets")
     @commands.guild_only()
     @commands.has_permissions(manage_guild=True)
     async def automod_presets(self, ctx: commands.Context):
         await self.automod_presets_impl(ctx)
+
 
     async def automod_delete_impl(self, ctx: commands.Context, rule_id: int):
         """Delete a native Discord AutoMod rule by ID."""
@@ -1555,11 +2260,492 @@ class Moderation(commands.Cog):
         except discord.HTTPException as e:
             await ctx.send(f"❌ Failed to toggle rule: {e.text or e}", ephemeral=True)
 
-    @automod.command(name="toggle")
+    # =========================================================================
+    # ANTI-NUKE ENGINE & PROTECTION SUITE
+    # =========================================================================
+
+    def _init_antinuke_buffers(self):
+        if not hasattr(self, "_antinuke_history"):
+            self._antinuke_history = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
+
+    async def _check_and_trigger_antinuke(self, guild: discord.Guild, action_type: str, fallback_executor: Optional[discord.Member] = None):
+        """Core Anti-Nuke rate limiter & protection engine."""
+        if not guild:
+            return
+
+        cfg = await get_guild_config(guild.id)
+        if not cfg.get("antinuke_enabled", True):
+            return
+
+        executor = fallback_executor
+        try:
+            audit_action_map = {
+                "channel_delete": getattr(discord.AuditLogAction, "channel_delete", None),
+                "channel_create": getattr(discord.AuditLogAction, "channel_create", None),
+                "role_delete": getattr(discord.AuditLogAction, "role_delete", None),
+                "role_create": getattr(discord.AuditLogAction, "role_create", None),
+                "kick": getattr(discord.AuditLogAction, "kick", None),
+                "ban": getattr(discord.AuditLogAction, "ban", None),
+                "bot_add": getattr(discord.AuditLogAction, "bot_add", None),
+                "webhook_spam": getattr(discord.AuditLogAction, "webhook_create", None),
+                "emoji_delete": getattr(discord.AuditLogAction, "emoji_delete", None),
+                "sticker_delete": getattr(discord.AuditLogAction, "sticker_delete", None),
+                "permission_abuse": getattr(discord.AuditLogAction, "role_update", None),
+            }
+            log_action_enum = audit_action_map.get(action_type)
+            if log_action_enum and guild.me and getattr(guild.me.guild_permissions, "view_audit_log", False):
+                async for entry in guild.audit_logs(limit=1, action=log_action_enum):
+                    if entry.user:
+                        executor = entry.user
+                    break
+        except Exception as exc:
+            logger.warning("Failed to fetch audit log for antinuke: %s", exc)
+
+        if not executor:
+            return
+
+        # Immunity Checks:
+        # 1. Server Owner is immune
+        if getattr(guild, "owner_id", None) and executor.id == guild.owner_id:
+            return
+        # 2. Bot Owner is immune
+        is_owner = False
+        try:
+            is_owner = await self.bot.is_owner(executor)
+        except Exception:
+            pass
+        if is_owner:
+            return
+        # 3. Bot itself is immune
+        if self.bot and self.bot.user and executor.id == self.bot.user.id:
+            return
+        # 4. Check User Whitelist
+        user_wl = cfg.get("antinuke_whitelisted_users", {})
+        if isinstance(user_wl, list):
+            if executor.id in user_wl:
+                return
+        elif isinstance(user_wl, dict):
+            u_cats = user_wl.get(str(executor.id), [])
+            if "all" in u_cats or action_type in u_cats or (action_type == "permission_abuse" and "role_update" in u_cats) or (action_type == "webhook_spam" and "webhook" in u_cats):
+                return
+
+        # 5. Check Role Whitelist
+        role_wl = cfg.get("antinuke_whitelisted_roles", {})
+        if hasattr(executor, "roles"):
+            for r in executor.roles:
+                r_id = getattr(r, "id", None)
+                if r_id is None:
+                    continue
+                if isinstance(role_wl, list):
+                    if r_id in role_wl:
+                        return
+                elif isinstance(role_wl, dict):
+                    r_cats = role_wl.get(str(r_id), [])
+                    if "all" in r_cats or action_type in r_cats or (action_type == "permission_abuse" and "role_update" in r_cats) or (action_type == "webhook_spam" and "webhook" in r_cats):
+                        return
+
+
+
+        # Rate Limiting via Sliding Window
+        self._init_antinuke_buffers()
+
+        # Threshold limits (default: 3 actions within 10 seconds)
+        thresholds = cfg.get("antinuke_thresholds", {})
+        limit_data = thresholds.get(action_type, [3, 10])
+        max_count, window_sec = limit_data[0], limit_data[1]
+
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=window_sec)
+
+        history = self._antinuke_history[guild.id][executor.id][action_type]
+        history = [ts for ts in history if ts > cutoff]
+        history.append(now)
+        self._antinuke_history[guild.id][executor.id][action_type] = history
+
+        if len(history) >= max_count:
+            punishment = cfg.get("antinuke_punishment", "strip_roles")
+            await self._punish_nuke_attacker(guild, executor, action_type, len(history), punishment)
+
+    async def _punish_nuke_attacker(self, guild: discord.Guild, attacker: Union[discord.User, discord.Member], action_type: str, count: int, punishment: str):
+        """Execute Anti-Nuke punishment and alert Server Owner & ModLog."""
+        reason = f"🚨 Anti-Nuke Protection Triggered! Executed {count} {action_type} actions within threshold."
+        member = guild.get_member(attacker.id) if isinstance(attacker, discord.User) else attacker
+
+        punishment_applied = "None"
+        try:
+            if member:
+                if punishment in ["strip_roles", "strip"]:
+                    bot_top = getattr(guild.me, "top_role", None)
+                    roles_to_remove = [r for r in member.roles if getattr(r, "name", "") != "@everyone" and (bot_top is None or r < bot_top)]
+                    if roles_to_remove:
+                        await member.remove_roles(*roles_to_remove, reason=reason)
+                        punishment_applied = f"Stripped {len(roles_to_remove)} roles"
+                    else:
+                        punishment_applied = "No assignable roles to strip"
+                elif punishment == "ban":
+                    await guild.ban(member, reason=reason, delete_message_days=1)
+                    punishment_applied = "Banned from server"
+                elif punishment == "kick":
+                    await member.kick(reason=reason)
+                    punishment_applied = "Kicked from server"
+        except Exception as e:
+            logger.exception("Failed to apply antinuke punishment to %s: %s", attacker.id, e)
+            punishment_applied = f"Failed ({e})"
+
+        # Log into SQLite DB
+        await log_action(
+            guild_id=guild.id,
+            moderator_id=self.bot.user.id if self.bot and self.bot.user else 0,
+            target_id=attacker.id,
+            action="ANTINUKE_PUNISH",
+            reason=f"Action: {action_type} | Punishment: {punishment_applied}"
+        )
+
+        embed = discord.Embed(
+            title="🚨 EMERGENCY ANTI-NUKE DETECTED!",
+            description=f"Anti-Nuke protection triggered for {attacker.mention} (`ID: {attacker.id}`).",
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="Trigger Event", value=f"`{action_type}` ({count} detections)", inline=True)
+        embed.add_field(name="Punishment Executed", value=f"`{punishment_applied}`", inline=True)
+        embed.set_footer(text=f"Anti-Nuke Engine • {guild.name}")
+
+        cfg = await get_guild_config(guild.id)
+        log_ch_id = cfg.get("antinuke_log_channel_id") or cfg.get("automod_log_channel_id") or cfg.get("modlog_channel_id")
+        if log_ch_id:
+            log_ch = guild.get_channel(int(log_ch_id))
+            if log_ch:
+                try:
+                    await log_ch.send(embed=embed)
+                except Exception:
+                    pass
+
+        # Send DM to Server Owner
+        try:
+            if getattr(guild, "owner", None):
+                owner_embed = discord.Embed(
+                    title=f"🚨 EMERGENCY: Anti-Nuke Triggered in {guild.name}",
+                    description=f"User **{attacker}** (`ID: {attacker.id}`) triggered Anti-Nuke by performing mass **{action_type}**.\n\n**Action Taken:** {punishment_applied}",
+                    color=discord.Color.red(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                await guild.owner.send(embed=owner_embed)
+        except Exception:
+            pass
+
+    # -------------------------------------------------------------------------
+    # Anti-Nuke Event Listeners (8/8 Monitored Protections)
+    # -------------------------------------------------------------------------
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        await self._check_and_trigger_antinuke(channel.guild, "channel_delete")
+
+    @commands.Cog.listener()
+    async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
+        await self._check_and_trigger_antinuke(channel.guild, "channel_create")
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role):
+        await self._check_and_trigger_antinuke(role.guild, "role_delete")
+
+    @commands.Cog.listener()
+    async def on_guild_role_create(self, role: discord.Role):
+        await self._check_and_trigger_antinuke(role.guild, "role_create")
+
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild: discord.Guild, user: Union[discord.User, discord.Member]):
+        await self._check_and_trigger_antinuke(guild, "ban")
+
+        try:
+            moderator = self.bot.user
+            reason = "Banned directly or via Discord UI"
+            try:
+                async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.ban):
+                    if entry.target and entry.target.id == user.id:
+                        moderator = entry.user
+                        if entry.reason:
+                            reason = entry.reason
+                        break
+            except Exception:
+                pass
+
+            case = await log_action(guild.id, moderator.id if moderator else 0, user.id, "ban", reason)
+            await self._post_modlog(guild, case, "Ban", moderator or self.bot.user, user, reason)
+        except Exception as e:
+            logger.warning("Failed to post ban modlog for user %s in %s: %s", user.id, guild.id, e)
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, guild: discord.Guild, user: discord.User):
+        try:
+            moderator = self.bot.user
+            reason = "Unbanned directly or via Discord UI"
+            try:
+                async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.unban):
+                    if entry.target and entry.target.id == user.id:
+                        moderator = entry.user
+                        if entry.reason:
+                            reason = entry.reason
+                        break
+            except Exception:
+                pass
+
+            case = await log_action(guild.id, moderator.id if moderator else 0, user.id, "unban", reason)
+            await self._post_modlog(guild, case, "Unban", moderator or self.bot.user, user, reason)
+        except Exception as e:
+            logger.warning("Failed to post unban modlog for user %s in %s: %s", user.id, guild.id, e)
+
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        await self._check_and_trigger_antinuke(member.guild, "kick")
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        if member.bot:
+            await self._check_and_trigger_antinuke(member.guild, "bot_add", fallback_executor=member)
+
+    @commands.Cog.listener()
+    async def on_webhooks_update(self, channel: discord.abc.GuildChannel):
+        await self._check_and_trigger_antinuke(channel.guild, "webhook_spam")
+
+    @commands.Cog.listener()
+    async def on_guild_emojis_update(self, guild: discord.Guild, before: List[discord.Emoji], after: List[discord.Emoji]):
+        if len(before) > len(after):
+            await self._check_and_trigger_antinuke(guild, "emoji_delete")
+
+    @commands.Cog.listener()
+    async def on_guild_stickers_update(self, guild: discord.Guild, before: List[discord.Sticker], after: List[discord.Sticker]):
+        if len(before) > len(after):
+            await self._check_and_trigger_antinuke(guild, "sticker_delete")
+
+    @commands.Cog.listener()
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        dangerous_perms = ["administrator", "manage_guild", "manage_roles", "ban_members", "kick_members"]
+        dangerous_added = False
+        for p in dangerous_perms:
+            was_set = getattr(before.permissions, p, False)
+            now_set = getattr(after.permissions, p, False)
+            if not was_set and now_set:
+                dangerous_added = True
+                break
+
+        if dangerous_added:
+            await self._check_and_trigger_antinuke(after.guild, "permission_abuse")
+
+    # -------------------------------------------------------------------------
+    # Anti-Nuke Commands
+    # -------------------------------------------------------------------------
+
+    @commands.hybrid_group(name="antinuke", invoke_without_command=True)
     @commands.guild_only()
-    @commands.has_permissions(manage_guild=True)
-    async def automod_toggle(self, ctx: commands.Context, rule_id: int):
-        await self.automod_toggle_impl(ctx, rule_id)
+    @commands.has_permissions(administrator=True)
+    async def antinuke(self, ctx: commands.Context):
+        """Anti-Nuke server defense and raid protection settings."""
+        await ctx.send_help(ctx.command)
+
+    @antinuke.command(name="config")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_config(self, ctx: commands.Context):
+        """View Anti-Nuke configuration and whitelist settings."""
+        cfg = await get_guild_config(ctx.guild.id)
+        enabled = cfg.get("antinuke_enabled", True)
+        punishment = cfg.get("antinuke_punishment", "strip_roles")
+
+        user_wl = cfg.get("antinuke_whitelisted_users", {})
+        role_wl = cfg.get("antinuke_whitelisted_roles", {})
+
+        u_cnt = len(user_wl) if isinstance(user_wl, (dict, list)) else 0
+        r_cnt = len(role_wl) if isinstance(role_wl, (dict, list)) else 0
+
+        status_str = "🟢 **Enabled**" if enabled else "🔴 **Disabled**"
+
+        embed = discord.Embed(
+            title=f"🛡️ Anti-Nuke Configuration — {ctx.guild.name}",
+            color=discord.Color.blurple()
+        )
+        embed.add_field(name="Protection Status", value=status_str, inline=True)
+        embed.add_field(name="Punishment Mode", value=f"`{punishment}`", inline=True)
+        embed.add_field(name="Whitelisted Entries", value=f"👥 **Users:** `{u_cnt}` | 🎭 **Roles:** `{r_cnt}`", inline=True)
+        embed.add_field(
+            name="Protected Modules (8/8)",
+            value=(
+                "> • 📺 **Channel Delete**\n"
+                "> • ➕ **Channel Create Spam**\n"
+                "> • 🎭 **Role Delete**\n"
+                "> • ➕ **Role Create Spam**\n"
+                "> • 🔗 **Webhook Spam**\n"
+                "> • 😃 **Emoji Delete**\n"
+                "> • 🏷️ **Sticker Delete**\n"
+                "> • ⚠️ **Permission Abuse**"
+            ),
+            inline=False
+        )
+        embed.set_footer(text="Use !antinuke whitelist add_user or add_role to manage whitelisted categories")
+        await ctx.send(embed=embed)
+
+    @antinuke.command(name="enable")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_enable(self, ctx: commands.Context):
+        """Enable Anti-Nuke protection for this server."""
+        await set_guild_config(ctx.guild.id, {"antinuke_enabled": True})
+        await ctx.send("🛡️ **Anti-Nuke Protection** is now 🟢 **Enabled** for this server.")
+
+    @antinuke.command(name="disable")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_disable(self, ctx: commands.Context):
+        """Disable Anti-Nuke protection for this server."""
+        await set_guild_config(ctx.guild.id, {"antinuke_enabled": False})
+        await ctx.send("⚠️ **Anti-Nuke Protection** is now 🔴 **Disabled** for this server.")
+
+    @antinuke.command(name="punishment")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_punishment(self, ctx: commands.Context, mode: str):
+        """Set Anti-Nuke punishment mode (strip_roles, ban, kick)."""
+        mode_clean = mode.lower().strip()
+        if mode_clean not in ["strip_roles", "strip", "ban", "kick"]:
+            await ctx.send("❌ Invalid punishment mode. Choose from: `strip_roles`, `ban`, or `kick`.", ephemeral=True)
+            return
+
+        target_mode = "strip_roles" if mode_clean in ["strip_roles", "strip"] else mode_clean
+        await set_guild_config(ctx.guild.id, {"antinuke_punishment": target_mode})
+        await ctx.send(f"✅ Anti-Nuke punishment mode set to **`{target_mode}`**.")
+
+    @antinuke.group(name="whitelist", invoke_without_command=True)
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_whitelist(self, ctx: commands.Context):
+        """Manage Anti-Nuke whitelisted users and roles with categories."""
+        await ctx.send_help(ctx.command)
+
+    @antinuke_whitelist.command(name="add_user", aliases=["add"])
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_whitelist_add_user(self, ctx: commands.Context, user: discord.User, category: Optional[str] = "all"):
+        """Add a trusted user to the Anti-Nuke whitelist with a specific category."""
+        cfg = await get_guild_config(ctx.guild.id)
+        user_wl = cfg.get("antinuke_whitelisted_users", {})
+        if isinstance(user_wl, list):
+            user_wl = {str(uid): ["all"] for uid in user_wl}
+
+        cat_clean = category.lower().strip() if category else "all"
+        u_id = str(user.id)
+        existing = user_wl.get(u_id, [])
+
+        if cat_clean == "all":
+            existing = ["all"]
+        else:
+            if "all" in existing:
+                existing.remove("all")
+            if cat_clean not in existing:
+                existing.append(cat_clean)
+
+        user_wl[u_id] = existing
+        await set_guild_config(ctx.guild.id, {"antinuke_whitelisted_users": user_wl})
+        cats_formatted = ", ".join([f"`{c}`" for c in existing])
+        await ctx.send(f"✅ {user.mention} (`ID: {user.id}`) is now whitelisted under category: {cats_formatted}.")
+
+    @antinuke_whitelist.command(name="add_role")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_whitelist_add_role(self, ctx: commands.Context, role: discord.Role, category: Optional[str] = "all"):
+        """Add a trusted role to the Anti-Nuke whitelist with a specific category."""
+        cfg = await get_guild_config(ctx.guild.id)
+        role_wl = cfg.get("antinuke_whitelisted_roles", {})
+        if isinstance(role_wl, list):
+            role_wl = {str(rid): ["all"] for rid in role_wl}
+
+        cat_clean = category.lower().strip() if category else "all"
+        r_id = str(role.id)
+        existing = role_wl.get(r_id, [])
+
+        if cat_clean == "all":
+            existing = ["all"]
+        else:
+            if "all" in existing:
+                existing.remove("all")
+            if cat_clean not in existing:
+                existing.append(cat_clean)
+
+        role_wl[r_id] = existing
+        await set_guild_config(ctx.guild.id, {"antinuke_whitelisted_roles": role_wl})
+        cats_formatted = ", ".join([f"`{c}`" for c in existing])
+        await ctx.send(f"✅ Role {role.mention} (`ID: {role.id}`) is now whitelisted under category: {cats_formatted}.")
+
+    @antinuke_whitelist.command(name="remove_user", aliases=["remove"])
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_whitelist_remove_user(self, ctx: commands.Context, user: discord.User):
+        """Remove a user from the Anti-Nuke whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        user_wl = cfg.get("antinuke_whitelisted_users", {})
+        if isinstance(user_wl, list):
+            user_wl = {str(uid): ["all"] for uid in user_wl}
+
+        u_id = str(user.id)
+        if u_id in user_wl:
+            del user_wl[u_id]
+            await set_guild_config(ctx.guild.id, {"antinuke_whitelisted_users": user_wl})
+        await ctx.send(f"✅ {user.mention} (`ID: {user.id}`) removed from the Anti-Nuke user whitelist.")
+
+    @antinuke_whitelist.command(name="remove_role")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_whitelist_remove_role(self, ctx: commands.Context, role: discord.Role):
+        """Remove a role from the Anti-Nuke whitelist."""
+        cfg = await get_guild_config(ctx.guild.id)
+        role_wl = cfg.get("antinuke_whitelisted_roles", {})
+        if isinstance(role_wl, list):
+            role_wl = {str(rid): ["all"] for rid in role_wl}
+
+        r_id = str(role.id)
+        if r_id in role_wl:
+            del role_wl[r_id]
+            await set_guild_config(ctx.guild.id, {"antinuke_whitelisted_roles": role_wl})
+        await ctx.send(f"✅ Role {role.mention} (`ID: {role.id}`) removed from the Anti-Nuke role whitelist.")
+
+    @antinuke_whitelist.command(name="show")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_whitelist_show(self, ctx: commands.Context):
+        """Show all Anti-Nuke whitelisted users and roles with categories."""
+        cfg = await get_guild_config(ctx.guild.id)
+        user_wl = cfg.get("antinuke_whitelisted_users", {})
+        role_wl = cfg.get("antinuke_whitelisted_roles", {})
+
+        if isinstance(user_wl, list):
+            user_wl = {str(uid): ["all"] for uid in user_wl}
+        if isinstance(role_wl, list):
+            role_wl = {str(rid): ["all"] for rid in role_wl}
+
+        u_lines = []
+        for uid, cats in user_wl.items():
+            cats_str = ", ".join([f"`{c}`" for c in cats])
+            u_lines.append(f"• <@{uid}> (`ID: {uid}`): {cats_str}")
+
+        r_lines = []
+        for rid, cats in role_wl.items():
+            cats_str = ", ".join([f"`{c}`" for c in cats])
+            r_lines.append(f"• <@&{rid}> (`ID: {rid}`): {cats_str}")
+
+        u_str = "\n".join(u_lines) if u_lines else "*No users whitelisted*"
+        r_str = "\n".join(r_lines) if r_lines else "*No roles whitelisted*"
+
+        embed = discord.Embed(
+            title=f"🛡️ Anti-Nuke Whitelist — {ctx.guild.name}",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="👤 Whitelisted Users", value=u_str, inline=False)
+        embed.add_field(name="🎭 Whitelisted Roles", value=r_str, inline=False)
+        embed.set_footer(text="Server Owner & Bot Owner are permanently immune.")
+        await ctx.send(embed=embed)
+
+
 
 
 

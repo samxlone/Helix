@@ -283,6 +283,48 @@ async def on_message(message: discord.Message):
 @bot.event
 async def on_ready():
     logger.info("Bot connected as %s (id=%s)", bot.user, bot.user.id)
+
+    # 1. Check for pending restart message update immediately on boot
+    restart_file = "data/restart_msg.json"
+    if os.path.exists(restart_file):
+        try:
+            with open(restart_file, "r") as f:
+                import json
+                import time
+                restart_data = json.load(f)
+            channel_id = restart_data.get("channel_id")
+            message_id = restart_data.get("message_id")
+            start_ts = restart_data.get("timestamp")
+
+            if channel_id and message_id:
+                channel = bot.get_channel(channel_id)
+                if not channel:
+                    channel = await bot.fetch_channel(channel_id)
+                if channel:
+                    msg = await channel.fetch_message(message_id)
+                    if msg:
+                        bot_name = bot.user.name
+                        if getattr(channel, "guild", None):
+                            guild_me = channel.guild.me or channel.guild.get_member(bot.user.id)
+                            if guild_me and getattr(guild_me, "display_name", None):
+                                bot_name = guild_me.display_name
+
+                        elapsed_str = ""
+                        if start_ts:
+                            duration = time.time() - start_ts
+                            elapsed_str = f" in **{duration:.2f}s**"
+
+                        await msg.edit(content=f"✅ **{bot_name}** has successfully restarted{elapsed_str}! 🚀")
+                        logger.info("Updated restart message in channel %s for bot %s", channel_id, bot_name)
+
+        except Exception as exc:
+            logger.warning("Failed to update restart message: %s", exc)
+        finally:
+            try:
+                os.remove(restart_file)
+            except Exception:
+                pass
+
     try:
         from utils.presence import load_and_set_presence
         await load_and_set_presence(bot)
@@ -302,14 +344,16 @@ async def on_ready():
             try:
                 gid = int(dev_gid)
                 await bot.tree.sync(guild=discord.Object(id=gid))
-                logger.info("Synced application commands to guild id=%s", gid)
+                logger.info("Synced application commands to DEV_GUILD_ID=%s", gid)
             except Exception:
                 logger.exception("Failed to sync app commands to DEV_GUILD_ID=%s", dev_gid)
-        else:
-            await bot.tree.sync()
-            logger.info("Synced application commands (global)")
+
+        # Always sync global slash command tree across ALL servers
+        synced_cmds = await bot.tree.sync()
+        logger.info("Synced %s application commands (global)", len(synced_cmds))
     except Exception as exc:
         logger.exception("Failed to sync app commands: %s", exc)
+
 
     # Log registered app commands and loaded cogs for debugging
     try:
@@ -325,38 +369,6 @@ async def on_ready():
     except Exception:
         logger.exception("Failed to list loaded cogs")
 
-    # Check for pending restart message update
-    restart_file = "data/restart_msg.json"
-    if os.path.exists(restart_file):
-        try:
-            with open(restart_file, "r") as f:
-                import json
-                restart_data = json.load(f)
-            channel_id = restart_data.get("channel_id")
-            message_id = restart_data.get("message_id")
-            if channel_id and message_id:
-                await asyncio.sleep(1)  # wait for cache/gateway
-                channel = bot.get_channel(channel_id)
-                if not channel:
-                    channel = await bot.fetch_channel(channel_id)
-                if channel:
-                    msg = await channel.fetch_message(message_id)
-                    if msg:
-                        bot_name = bot.user.name
-                        if getattr(channel, "guild", None):
-                            guild_me = channel.guild.me or channel.guild.get_member(bot.user.id)
-                            if guild_me and getattr(guild_me, "display_name", None):
-                                bot_name = guild_me.display_name
-                        await msg.edit(content=f"🟢 **{bot_name}** is online!")
-                        logger.info("Updated restart message in channel %s for bot %s", channel_id, bot_name)
-
-        except Exception as exc:
-            logger.warning("Failed to update restart message: %s", exc)
-        finally:
-            try:
-                os.remove(restart_file)
-            except Exception:
-                pass
 
 
 async def main():

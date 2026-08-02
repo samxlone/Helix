@@ -95,21 +95,27 @@ class ConfigCog(commands.Cog):
 
         await ctx.defer(ephemeral=True)
         try:
+            if guild_id and guild_id.lower() == "global":
+                synced = await self.bot.tree.sync()
+                await ctx.send(f"✅ Globally synced {len(synced)} application commands across all servers!", ephemeral=True)
+                return
+
             target_guild = None
-            if guild_id:
+            if guild_id and guild_id.isdigit():
                 target_guild = discord.Object(id=int(guild_id))
             elif ctx.guild:
                 target_guild = discord.Object(id=ctx.guild.id)
             else:
-                await ctx.send("Guild ID must be provided when used in DMs.", ephemeral=True)
+                await ctx.send("Guild ID or 'global' must be provided when used in DMs.", ephemeral=True)
                 return
 
             self.bot.tree.copy_global_to(guild=target_guild)
             synced = await self.bot.tree.sync(guild=target_guild)
-            await ctx.send(f"Synced {len(synced)} commands to guild id={target_guild.id}", ephemeral=True)
+            await ctx.send(f"✅ Synced {len(synced)} commands to guild id={target_guild.id}", ephemeral=True)
         except Exception as exc:
             logger.exception("Failed to sync commands: %s", exc)
-            await ctx.send("Failed to sync commands. Check logs.", ephemeral=True)
+            await ctx.send(f"❌ Failed to sync commands: {exc}", ephemeral=True)
+
 
     @commands.hybrid_command(name="setprefix")
     @commands.guild_only()

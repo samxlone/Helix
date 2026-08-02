@@ -1,0 +1,678 @@
+{
+  "name": "Luxury Palace",
+  "description": "",
+  "roles": [
+    {
+      "name": ".",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8864258447638527
+    },
+    {
+      "name": "Helix",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8
+    },
+    {
+      "name": "\ud83d\udc51 Owner",
+      "color": 15844367,
+      "hoist": true,
+      "mentionable": true,
+      "permissions": 8
+    },
+    {
+      "name": "\ud83d\udee1\ufe0f Admin",
+      "color": 15158332,
+      "hoist": true,
+      "mentionable": true,
+      "permissions": 8
+    },
+    {
+      "name": "\ud83d\udd28 Moderator",
+      "color": 3447003,
+      "hoist": true,
+      "mentionable": true,
+      "permissions": 1099511627775
+    },
+    {
+      "name": "\u2b50 VIP",
+      "color": 10181046,
+      "hoist": true,
+      "mentionable": true,
+      "permissions": 104324097
+    },
+    {
+      "name": "\ud83d\udc65 Member",
+      "color": 3066993,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 104324097
+    }
+  ],
+  "categories": [
+    {
+      "name": "#.                               001 \ufe52",
+      "position": 0,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\uff0elaw",
+          "type": "text",
+          "topic": null,
+          "position": 2,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0erichhz",
+          "type": "text",
+          "topic": null,
+          "position": 3,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0eannc",
+          "type": "text",
+          "topic": null,
+          "position": 4,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "#.                               003 \ufe52",
+      "position": 2,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\uff0echat",
+          "type": "text",
+          "topic": null,
+          "position": 8,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0eimg",
+          "type": "text",
+          "topic": null,
+          "position": 9,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0ecmds",
+          "type": "text",
+          "topic": null,
+          "position": 10,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "#.                               004 \ufe52",
+      "position": 3,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\uff0eChill \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 0,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0eHangout \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 1,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0eDuo \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 4,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "#.                               005 \ufe52",
+      "position": 4,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ],
+      "channels": [
+        {
+          "name": "\uff0einterface",
+          "type": "text",
+          "topic": null,
+          "position": 12,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\uff0eJoin to create \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 7,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#.                               006 \ufe52",
+      "position": 5,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ],
+      "channels": [
+        {
+          "name": "\uff0eOwner's \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 8,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\uff0eStaff \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 9,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\uff0eAdmin's \u1d5b\u1d9c",
+          "type": "voice",
+          "topic": null,
+          "position": 10,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "#.                               007 \ufe52",
+      "position": 6,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\uff0emusic\ufe52cmd",
+          "type": "text",
+          "topic": null,
+          "position": 13,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0eMusic Vc 1",
+          "type": "voice",
+          "topic": null,
+          "position": 11,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\uff0eMusic Vc 2",
+          "type": "voice",
+          "topic": null,
+          "position": 12,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "#.                               008 \ufe52",
+      "position": 7,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ],
+      "channels": [
+        {
+          "name": "\ufe52\u196b\u1b61\ufe52boys\ufe52pfp\ufe52\u2039\ud835\udff9",
+          "type": "text",
+          "topic": null,
+          "position": 14,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ufe52\u196b\u1b61\ufe52girls\ufe52pfp\ufe52\u2039\ud835\udff9",
+          "type": "text",
+          "topic": null,
+          "position": 15,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ufe52\u196b\u1b61\ufe52couples\ufe52pfp\ufe52\u2039\ud835\udff9",
+          "type": "text",
+          "topic": null,
+          "position": 16,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ufe52\u196b\u1b61\ufe52banners\ufe52\u2039\ud835\udff9",
+          "type": "text",
+          "topic": null,
+          "position": 17,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Helix Logs",
+      "position": 12,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        },
+        {
+          "target_name": "Helix",
+          "target_type": "member",
+          "allow": 3072,
+          "deny": 0
+        }
+      ],
+      "channels": [
+        {
+          "name": "ban-unban_log",
+          "type": "text",
+          "topic": "Bans, unbans, and kicks",
+          "position": 23,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "automod-log",
+          "type": "text",
+          "topic": "Automod and protection alerts",
+          "position": 24,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "antinuke-log",
+          "type": "text",
+          "topic": "Anti-Nuke and emergency security alerts",
+          "position": 25,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "message-log",
+          "type": "text",
+          "topic": "Message edits and deleted messages",
+          "position": 26,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "image-log",
+          "type": "text",
+          "topic": "Image uploads and image media log",
+          "position": 27,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "join-leave-log",
+          "type": "text",
+          "topic": "Member joins and member leaves",
+          "position": 28,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "role-create-log",
+          "type": "text",
+          "topic": "Role creation events",
+          "position": 29,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "role-update-log",
+          "type": "text",
+          "topic": "Role modification events",
+          "position": 30,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "role-delete-log",
+          "type": "text",
+          "topic": "Role deletion events",
+          "position": 31,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "role-add-remove-log",
+          "type": "text",
+          "topic": "Member role changes",
+          "position": 32,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "channel-create-log",
+          "type": "text",
+          "topic": "Channel creation events",
+          "position": 33,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "channel-delete-log",
+          "type": "text",
+          "topic": "Channel deletion events",
+          "position": 34,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "voice-log",
+          "type": "text",
+          "topic": "Voice channel joins, leaves, moves, and mutes",
+          "position": 35,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            },
+            {
+              "target_name": "Helix",
+              "target_type": "member",
+              "allow": 3072,
+              "deny": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "uncategorized_channels": [
+    {
+      "name": "\uff0egg\uff0fluxury",
+      "type": "text",
+      "topic": null,
+      "position": 1,
+      "nsfw": false,
+      "overwrites": []
+    },
+    {
+      "name": "setup",
+      "type": "text",
+      "topic": null,
+      "position": 0,
+      "nsfw": false,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ]
+    }
+  ],
+  "created_at": "2026-08-02T15:32:09.327942+00:00",
+  "source": "Guild: Luxury Palace (1532450917327175861)"
+}

@@ -7,17 +7,36 @@ from .models import Track
 logger = logging.getLogger(__name__)
 
 
+_last_status_cache = {}
+
+
 async def update_vc_status(bot, channel_id: Optional[int], status_text: str):
-    """Set or clear the voice channel status text for a voice channel."""
+    """Set or clear the voice channel status text for a voice channel with rate-limit debounce."""
     if not bot or not channel_id:
         return
     status_str = (status_text or "").strip()[:500]
+
+    # Debounce check: avoid sending duplicate updates or spamming Discord API
+    try:
+        now = asyncio.get_running_loop().time()
+    except Exception:
+        now = 0
+
+    last_time, last_val = _last_status_cache.get(channel_id, (0, None))
+    if last_val == status_str and (now - last_time < 30.0):
+        return
+
+
+
+    _last_status_cache[channel_id] = (now, status_str)
+
     try:
         import discord
         route = discord.http.Route("PUT", "/channels/{channel_id}/voice-status", channel_id=channel_id)
         await bot.http.request(route, json={"status": status_str})
     except Exception as e:
         logger.debug("Failed to set VC status for channel %s: %s", channel_id, e)
+
 
 
 class Player:
@@ -42,6 +61,28 @@ class Player:
         from .autoplay import Autoplay
         self.autoplay = Autoplay()
         self.volume = 1.0
+
+    async def _ensure_valid_stream_url(self, track):
+        """Ensure track has a valid direct http/https audio stream URL prior to playback."""
+        if not track:
+            return
+        url = getattr(track, "stream_url", None) or getattr(track, "url", "")
+        if not url or not (url.startswith("http://") or url.startswith("https://")):
+            try:
+                from .providers import YTDLPProvider
+                yt = YTDLPProvider()
+                query = getattr(track, "url", None) or getattr(track, "title", None) or "song"
+                search_term = query if query.startswith("http") else f"ytsearch:{query}"
+                meta = await yt.fetch_metadata(search_term)
+                if meta and meta.get("stream_url"):
+                    track.stream_url = meta["stream_url"]
+                    if meta.get("http_headers"):
+                        track.http_headers = meta["http_headers"]
+            except Exception as err:
+                logger.warning("On-demand stream resolution failed for %s: %s", getattr(track, "title", "track"), err)
+                if not getattr(track, "stream_url", None):
+                    track.stream_url = getattr(track, "url", None) or getattr(track, "title", "ytsearch:song")
+
 
     async def _play_loop(self):
         # stub loop: waits and moves through queue without audio
@@ -142,8 +183,6 @@ class Player:
                             if text_ch:
                                 await text_ch.send("Autoplay was stopped because several tracks failed to start. Try playing a new song.")
                             continue
-                        import logging
-                        logger = logging.getLogger(__name__)
                         history = self.queue.get_history()
                         last_track = history[-1] if history else None
                         if last_track:
@@ -201,15 +240,16 @@ class Player:
                                 view = NowPlayingView(bot_instance, voice_client.guild.id, bot_instance.get_cog("MusicCog"))
                                 asyncio.create_task(text_ch.send(embed=embed, view=view))
                             except Exception as e:
-                                import logging
-                                logger = logging.getLogger(__name__)
                                 logger.exception("Failed to send Started Playing embed: %s", e)
 
-                                
                     seek_time = getattr(self, "seek_time", 0)
                     self.seek_time = 0
                     self.current_track_started_at = loop.time() - seek_time
                     playback_started_at = loop.time()
+
+                    # On-demand stream resolution if stream_url is missing or invalid
+                    await self._ensure_valid_stream_url(track)
+
                     playback_ok = await play_track_on_voice(
                         voice_client,
                         track,
@@ -220,20 +260,17 @@ class Player:
                     )
                     playback_seconds = loop.time() - playback_started_at
                     if not self._restarting_current_track:
-                        # Repeated immediate endings indicate an expired/broken stream. Do not let
-                        # autoplay spin forever by repeatedly fetching recommendations in that case.
+                        # Repeated immediate endings indicate an expired/broken stream.
                         if not playback_ok or (playback_seconds < 3 and (track.duration or 0) > 3):
                             self._consecutive_playback_failures += 1
                             logger.warning("Playback ended unexpectedly after %.1fs for %s (%d consecutive failures).", playback_seconds, track.title, self._consecutive_playback_failures)
                         else:
                             self._consecutive_playback_failures = 0
                 except Exception as exc:
-                    # If playback fails, log and skip to next
-                    import logging
-                    logger = logging.getLogger(__name__)
                     logger.exception("Voice playback failed for track %s: %s", track.title, exc)
                     if not self._restarting_current_track:
                         self._consecutive_playback_failures += 1
+
                     pass
                 finally:
                     # Advance the queue after playback finishes (only if we are not seeking)

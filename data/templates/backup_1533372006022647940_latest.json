@@ -1,0 +1,1511 @@
+{
+  "name": "Ascend Labs",
+  "description": "",
+  "roles": [
+    {
+      "name": ".",
+      "color": 0,
+      "hoist": false,
+      "mentionable": true,
+      "permissions": 8864258179203067
+    },
+    {
+      "name": "Stande Above All.",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "| command without consent .",
+      "color": 16777215,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 0
+    },
+    {
+      "name": "sexy",
+      "color": 11342935,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8864224087900151
+    },
+    {
+      "name": "\ud83d\udc51GIRL OWNER",
+      "color": 16105442,
+      "hoist": true,
+      "mentionable": false,
+      "permissions": 8864223819464695
+    },
+    {
+      "name": "\ud83d\udc51OWNER.?",
+      "color": 773,
+      "hoist": true,
+      "mentionable": false,
+      "permissions": 8864189459726327
+    },
+    {
+      "name": "Yashvika Special one\u2019s \ud83e\udd0d",
+      "color": 39935,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137439085568
+    },
+    {
+      "name": "Arman Special one\u2019s \u26a1\ufe0f",
+      "color": 16711680,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 29361152
+    },
+    {
+      "name": "\ud83e\udd8b",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1101901844037
+    },
+    {
+      "name": "\ud83d\udd39Management.",
+      "color": 16777215,
+      "hoist": true,
+      "mentionable": false,
+      "permissions": 352943262016512
+    },
+    {
+      "name": "\ud83d\udd2b",
+      "color": 3853837,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1101767626305
+    },
+    {
+      "name": "Trial management .",
+      "color": 0,
+      "hoist": true,
+      "mentionable": false,
+      "permissions": 1101767626305
+    },
+    {
+      "name": "VcHelp",
+      "color": 16777215,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "\ud83d\udc9d Frost Queen",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 0
+    },
+    {
+      "name": "\ud83d\udc8e Special gays",
+      "color": 39935,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 0
+    },
+    {
+      "name": "Yashviiiii ka pagluu\ud83d\udc99",
+      "color": 9807270,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8791410180
+    },
+    {
+      "name": "sweetie \ud83e\udd8b",
+      "color": 16737792,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Verify baddie \ud83d\udc8b",
+      "color": 2687233,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Handsome\ud83c\udf80",
+      "color": 12602444,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Pokkie\ud83c\udf38",
+      "color": 9240710,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Gentlemen\ud83c\udf37",
+      "color": 7914732,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "cuttie*\ud83c\udf80",
+      "color": 7419530,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Regulars\ud83c\udf8a",
+      "color": 3447003,
+      "hoist": true,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "diva \ud83d\udc8b",
+      "color": 8590853,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "baby girl !? \ud83d\udc9d",
+      "color": 15277667,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Infinite Aura. \ud83d\udca5",
+      "color": 14606046,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "\ud83e\udd1dFriends.",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "\ud83c\udf80. Heaven",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "\ud80c\udf62\u05b4\u0ecb\u2740\u02da\u22c6 Angels",
+      "color": 14709399,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Artist.",
+      "color": 15844367,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Lvl 70",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "Lvl 60",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "Lvl 50",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "Lvl 40",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "Lvl 30",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "Lvl 20",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "LVL10",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438955008
+    },
+    {
+      "name": "Lvl 5",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 137438954496
+    },
+    {
+      "name": "him",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "her",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "18+",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "18-",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Infinite aura",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "pretty soul",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 0
+    },
+    {
+      "name": "OGHOMIES\ud83c\udf52",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 268436480
+    },
+    {
+      "name": "\uaac2\u2741 Verified Girls",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Name Is Enough\u26a1",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Vc ping",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Chat ping",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "None",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Lafda ping",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 0
+    },
+    {
+      "name": "Spiderman\ud83d\udd77\ufe0f",
+      "color": 3026222,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Hottie!?\ud83e\udee6",
+      "color": 15673690,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Apsara\ud83e\udeb7",
+      "color": 13495295,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1024
+    },
+    {
+      "name": "Statbot",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 269601936
+    },
+    {
+      "name": "OwO",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 277025754176
+    },
+    {
+      "name": "Haven Imperium",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8
+    },
+    {
+      "name": "CHANDNII",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8
+    },
+    {
+      "name": "Verified",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 0
+    },
+    {
+      "name": "Arcane",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 1495521290486
+    },
+    {
+      "name": "Karuta",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 379969
+    },
+    {
+      "name": "Sofi",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 446676978785
+    },
+    {
+      "name": "Pok\u00e9two",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 387136
+    },
+    {
+      "name": "P2 Assistant",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 395942816784
+    },
+    {
+      "name": "Helix",
+      "color": 0,
+      "hoist": false,
+      "mentionable": false,
+      "permissions": 8
+    }
+  ],
+  "categories": [
+    {
+      "name": "Verify yourself",
+      "position": 0,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "verify",
+          "type": "text",
+          "topic": null,
+          "position": 0,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "\ud835\udc30\ud835\udc1e\ud835\udc25\ud835\udc1c\ud835\udc28\ud835\udc26\ud835\udc1e",
+      "position": 1,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\ud835\udc16\ud835\udc1e\ud835\udc25\ud835\udc1c\ud835\udc28\ud835\udc26\ud835\udc1e",
+          "type": "text",
+          "topic": null,
+          "position": 1,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udc11\ud835\udc2e\ud835\udc25\ud835\udc1e\ud835\udc2c",
+          "type": "text",
+          "topic": null,
+          "position": 2,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde6\ud835\uddf2\ud835\uddf9\ud835\uddf3-\ud835\uddff\ud835\uddfc\ud835\uddf9\ud835\uddf2",
+          "type": "text",
+          "topic": null,
+          "position": 3,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde5\ud835\uddee\ud835\uddfb\ud835\uddf8-\ud835\ude02\ud835\uddfd",
+          "type": "text",
+          "topic": null,
+          "position": 4,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde6\ud835\ude02\ud835\uddf4\ud835\uddf4\ud835\uddf2\ud835\ude00\ud835\ude00\ud835\ude01\ud835\uddf6\ud835\uddfc\ud835\uddfb-\ud835\uddef\ud835\uddfc\ud835\ude05",
+          "type": "text",
+          "topic": null,
+          "position": 5,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "\ud835\udde7\ud835\uddf2\ud835\ude05\ud835\ude01 \ud835\uddf0\ud835\uddf5\ud835\uddee\ud835\uddfb\ud835\uddfb\ud835\uddf2\ud835\uddf9\ud835\ude00",
+      "position": 2,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\ud835\udc02\ud835\udc21\ud835\udc1a\ud835\udc2d",
+          "type": "text",
+          "topic": null,
+          "position": 6,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde0\ud835\uddf2\ud835\uddfa\ud835\uddf2\ud835\ude00",
+          "type": "text",
+          "topic": null,
+          "position": 7,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde0\ud835\uddf2\ud835\uddf1\ud835\uddf6\ud835\uddee-\ud835\ude00\ud835\uddf5\ud835\uddee\ud835\uddff\ud835\uddf2",
+          "type": "text",
+          "topic": null,
+          "position": 8,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde3\ud835\uddfc\ud835\uddf2\ud835\ude01\ud835\uddff\ud835\ude06",
+          "type": "text",
+          "topic": null,
+          "position": 9,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\uddd4\ud835\uddff\ud835\ude01\ud835\ude00",
+          "type": "text",
+          "topic": null,
+          "position": 10,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\uddd6\ud835\uddff\ud835\uddf2\ud835\uddee\ud835\ude01\ud835\uddf2-\ud835\ude01\ud835\uddf6\ud835\uddf0\ud835\uddf8\ud835\uddf2\ud835\ude01\ud835\ude00",
+          "type": "text",
+          "topic": null,
+          "position": 11,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\uddd4\ud835\uddf6-\ud835\uddee\ud835\uddff\ud835\ude01\ud835\ude00",
+          "type": "text",
+          "topic": null,
+          "position": 14,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud835\udde6\ud835\udddc\ud835\udde1\ud835\uddda\ud835\udddc\ud835\udde1\ud835\uddda \ud835\udde9\ud835\uddd6",
+      "position": 3,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\ud835\ude00\ud835\uddf6\ud835\uddfb\ud835\uddf4\ud835\uddf6\ud835\uddfb\ud835\uddf4-chat",
+          "type": "text",
+          "topic": null,
+          "position": 12,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udde6\ud835\udddc\ud835\udde1\ud835\uddda\ud835\udddc\ud835\udde1\ud835\uddda \ud835\udde9\ud835\uddd6 \ud835\udfed",
+          "type": "voice",
+          "topic": null,
+          "position": 0,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "TOXIC VC",
+      "position": 4,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "TOXIC VC",
+          "type": "voice",
+          "topic": null,
+          "position": 1,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "\ud835\udddb\ud835\uddee\ud835\uddfb\ud835\uddf4\ud835\uddfc\ud835\ude02\ud835\ude01'\ud835\ude00",
+      "position": 5,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "Hangout 1",
+          "type": "voice",
+          "topic": null,
+          "position": 2,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "Hangout 2",
+          "type": "voice",
+          "topic": null,
+          "position": 3,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udddbangout 3",
+          "type": "voice",
+          "topic": null,
+          "position": 4,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "Hangout 4",
+          "type": "voice",
+          "topic": null,
+          "position": 5,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\udddb\ud835\uddee\ud835\uddfb\ud835\uddf4\ud835\uddfc\ud835\ude02\ud835\ude01 \ud835\udff1",
+          "type": "voice",
+          "topic": null,
+          "position": 16,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddb\ud835\uddee\ud835\uddfb\ud835\uddf4\ud835\uddfc\ud835\ude02\ud835\ude01 \ud835\udff2",
+          "type": "voice",
+          "topic": null,
+          "position": 17,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddb\ud835\uddee\ud835\uddfb\ud835\uddf4\ud835\uddfc\ud835\ude02\ud835\ude01 \ud835\udff3",
+          "type": "voice",
+          "topic": null,
+          "position": 18,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddb\ud835\uddee\ud835\uddfb\ud835\uddf4\ud835\uddfc\ud835\ude02\ud835\ude01 \ud835\udff4",
+          "type": "voice",
+          "topic": null,
+          "position": 19,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud835\uddd7\ud835\ude02\ud835\uddfc",
+      "position": 6,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\ud835\uddd7\ud835\ude02\ud835\uddfc \ud835\udfed",
+          "type": "voice",
+          "topic": null,
+          "position": 6,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\uddd7\ud835\ude02\ud835\uddfc \ud835\udfee",
+          "type": "voice",
+          "topic": null,
+          "position": 7,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "\ud835\uddd7\ud835\ude02\ud835\uddfc \ud835\udfef",
+          "type": "voice",
+          "topic": null,
+          "position": 22,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddd7\ud835\ude02\ud835\uddfc \ud835\udff0",
+          "type": "voice",
+          "topic": null,
+          "position": 23,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud835\udde3\ud835\uddd9\ud835\udde3\ud835\udde6 / \ud835\uddd5\ud835\uddd4\ud835\udde1\ud835\udde1\ud835\uddd8\ud835\udde5\ud835\udde6",
+      "position": 7,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "\ud835\uddd5\ud835\uddfc\ud835\ude06\ud835\ude00_\ud835\uddfd\ud835\uddf3\ud835\uddfd",
+          "type": "text",
+          "topic": null,
+          "position": 13,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "Stande Above All.",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddda\ud835\uddf6\ud835\uddff\ud835\uddf9_\ud835\uddfd\ud835\uddf3\ud835\uddfd",
+          "type": "text",
+          "topic": null,
+          "position": 14,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddd6\ud835\uddfc\ud835\ude02\ud835\uddfd\ud835\uddf9\ud835\uddf2_\ud835\uddfd\ud835\uddf3\ud835\uddfd",
+          "type": "text",
+          "topic": null,
+          "position": 15,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddd5\ud835\uddee\ud835\uddfb\ud835\uddfb\ud835\uddf2\ud835\uddff\ud835\ude00",
+          "type": "text",
+          "topic": null,
+          "position": 16,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 1024,
+              "deny": 2048
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Games",
+      "position": 8,
+      "overwrites": [],
+      "channels": [
+        {
+          "name": "owo",
+          "type": "text",
+          "topic": null,
+          "position": 17,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "poke-two",
+          "type": "text",
+          "topic": null,
+          "position": 18,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "sofi",
+          "type": "text",
+          "topic": null,
+          "position": 19,
+          "nsfw": false,
+          "overwrites": []
+        },
+        {
+          "name": "karuta",
+          "type": "text",
+          "topic": null,
+          "position": 20,
+          "nsfw": false,
+          "overwrites": []
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "position": 9,
+      "overwrites": [],
+      "channels": []
+    },
+    {
+      "name": "support",
+      "position": 10,
+      "overwrites": [],
+      "channels": []
+    },
+    {
+      "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2'\ud835\ude00",
+      "position": 24,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ],
+      "channels": [
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udfed",
+          "type": "voice",
+          "topic": null,
+          "position": 4,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udfee",
+          "type": "voice",
+          "topic": null,
+          "position": 5,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udfef",
+          "type": "voice",
+          "topic": null,
+          "position": 6,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udd2b",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83e\udd8b",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "| command without consent .",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udd39Management.",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Yashvika Special one\u2019s \ud83e\udd0d",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Arman Special one\u2019s \u26a1\ufe0f",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Stande Above All.",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udff0",
+          "type": "voice",
+          "topic": null,
+          "position": 7,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udff1",
+          "type": "voice",
+          "topic": null,
+          "position": 8,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udff2",
+          "type": "voice",
+          "topic": null,
+          "position": 9,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udff3",
+          "type": "voice",
+          "topic": null,
+          "position": 10,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udddf\ud835\uddfc\ud835\ude02\ud835\uddfb\ud835\uddf4\ud835\uddf2 \ud835\udff4",
+          "type": "voice",
+          "topic": null,
+          "position": 11,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud835\uddda\ud835\uddee\ud835\uddfa\ud835\uddf6\ud835\uddfb\ud835\uddf4",
+      "position": 47,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ],
+      "channels": [
+        {
+          "name": "\ud835\uddda\ud835\udde7\ud835\uddd4 \ud835\udde9 \ud835\udfed",
+          "type": "voice",
+          "topic": null,
+          "position": 24,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddda\ud835\udde7\ud835\uddd4 \ud835\udde9 \ud835\udfee",
+          "type": "voice",
+          "topic": null,
+          "position": 25,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddda\ud835\udde7\ud835\uddd4 \ud835\udde9 3",
+          "type": "voice",
+          "topic": null,
+          "position": 26,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddd6\ud835\udddb\ud835\uddd8\ud835\udde6\ud835\udde6",
+          "type": "voice",
+          "topic": null,
+          "position": 27,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1049600
+            }
+          ]
+        },
+        {
+          "name": "\ud835\uddd6\ud835\udddb\ud835\uddd8\ud835\udde6\ud835\udde6",
+          "type": "voice",
+          "topic": null,
+          "position": 28,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1024
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud835\udde2\ud835\uddea\ud835\udde1\ud835\uddd8\ud835\udde5\ud835\udde6 \ud835\udde9\ud835\uddd6",
+      "position": 58,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1049600
+        },
+        {
+          "target_name": "| command without consent .",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 0
+        },
+        {
+          "target_name": ".",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 0
+        },
+        {
+          "target_name": "\ud83d\udc51GIRL OWNER",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 0
+        },
+        {
+          "target_name": "Yashvika Special one\u2019s \ud83e\udd0d",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 0
+        },
+        {
+          "target_name": "\ud83d\udc51OWNER.?",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 0
+        },
+        {
+          "target_name": "Arman Special one\u2019s \u26a1\ufe0f",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 0
+        }
+      ],
+      "channels": [
+        {
+          "name": "\ud835\udde2\ud835\uddea\ud835\udde1\ud835\uddd8\ud835\udde5 \ud835\udde9\ud835\uddd6 \ud835\udfee",
+          "type": "voice",
+          "topic": null,
+          "position": 29,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1049600
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "| command without consent .",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Yashvika Special one\u2019s \ud83e\udd0d",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Arman Special one\u2019s \u26a1\ufe0f",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Stande Above All.",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udde2\ud835\uddea\ud835\udde1\ud835\uddd8\ud835\udde5 \ud835\udde9\ud835\uddd6 \ud835\udfef",
+          "type": "voice",
+          "topic": null,
+          "position": 30,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1049600
+            },
+            {
+              "target_name": "Arman Special one\u2019s \u26a1\ufe0f",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "| command without consent .",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Yashvika Special one\u2019s \ud83e\udd0d",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Stande Above All.",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            }
+          ]
+        },
+        {
+          "name": "\ud835\udde2\ud835\uddea\ud835\udde1\ud835\uddd8\ud835\udde5 \ud835\udde9\ud835\uddd6 \ud835\udfed",
+          "type": "voice",
+          "topic": null,
+          "position": 31,
+          "nsfw": false,
+          "overwrites": [
+            {
+              "target_name": "@everyone",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 1049600
+            },
+            {
+              "target_name": ".",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "| command without consent .",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51GIRL OWNER",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Yashvika Special one\u2019s \ud83e\udd0d",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            },
+            {
+              "target_name": "sexy",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "\ud83d\udc51OWNER.?",
+              "target_type": "role",
+              "allow": 1049600,
+              "deny": 0
+            },
+            {
+              "target_name": "Arman Special one\u2019s \u26a1\ufe0f",
+              "target_type": "role",
+              "allow": 0,
+              "deny": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "uncategorized_channels": [
+    {
+      "name": "moderator-only",
+      "type": "text",
+      "topic": null,
+      "position": 0,
+      "nsfw": false,
+      "overwrites": [
+        {
+          "target_name": "@everyone",
+          "target_type": "role",
+          "allow": 0,
+          "deny": 1024
+        }
+      ]
+    }
+  ],
+  "created_at": "2026-08-02T15:39:16.590495+00:00",
+  "source": "Guild: Ascend Labs (1533372006022647940)"
+}

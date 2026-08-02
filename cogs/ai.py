@@ -280,7 +280,8 @@ class AICog(commands.Cog):
     @commands.command(name="setaiprovider", aliases=["aiprovider"])
     @commands.guild_only()
     async def setaiprovider(self, ctx: commands.Context, provider: str):
-        """Set default AI provider for this server: 'openai' (GPT-4o-mini) or 'gemini' (Gemini 1.5 Flash)."""
+        """Set default AI provider for this server ('openai' or 'gemini')."""
+
         is_allowed = (
             ctx.author.guild_permissions.manage_guild
             or ctx.author.guild_permissions.administrator

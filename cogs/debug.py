@@ -177,6 +177,7 @@ class DebugCog(commands.Cog):
             await ctx.send("You are not authorized to run this command.")
             return
 
+        import time
         message = await ctx.send("Restarting the bot... 🔄")
         logger.info("Bot restart requested by owner %s (id=%s)", ctx.author, ctx.author.id)
 
@@ -184,12 +185,17 @@ class DebugCog(commands.Cog):
         try:
             os.makedirs("data", exist_ok=True)
             with open("data/restart_msg.json", "w") as f:
-                json.dump({"channel_id": message.channel.id, "message_id": message.id}, f)
+                json.dump({
+                    "channel_id": message.channel.id,
+                    "message_id": message.id,
+                    "timestamp": time.time()
+                }, f)
         except Exception as e:
             logger.warning("Failed to save restart message state: %s", e)
 
         # Re-execute process immediately
         os.execv(sys.executable, [sys.executable] + sys.argv)
+
 
     @commands.command(name="presence")
     @commands.guild_only()
@@ -485,7 +491,7 @@ class DebugCog(commands.Cog):
 
     @commands.command(name="global_avatar", aliases=["setglobalavatar", "setbotavatar"])
     async def global_avatar(self, ctx: commands.Context, image_url: Optional[str] = None):
-        """Set or reset the bot's global account avatar across all servers (owner-only). Use 'reset' to clear."""
+        """Set or reset the bot's global account avatar across all servers."""
         if not await self._is_owner(ctx.author):
             await ctx.send("❌ You are not authorized to run this command.", ephemeral=True)
             return
@@ -511,7 +517,7 @@ class DebugCog(commands.Cog):
 
     @commands.command(name="global_banner", aliases=["setglobalbanner", "setbotbanner"])
     async def global_banner(self, ctx: commands.Context, image_url: Optional[str] = None):
-        """Set or reset the bot's global account banner across all servers (owner-only). Use 'reset' to clear."""
+        """Set or reset the bot's global account banner across all servers."""
         if not await self._is_owner(ctx.author):
             await ctx.send("❌ You are not authorized to run this command.", ephemeral=True)
             return
@@ -537,7 +543,8 @@ class DebugCog(commands.Cog):
 
     @commands.command(name="server_about", aliases=["setserverabout", "server_bio", "setserverbio"])
     async def server_about(self, ctx: commands.Context, *, text: Optional[str] = None, guild_id: Optional[int] = None):
-        """Set or reset the bot's server-specific 'About Me' bio (owner-only). Use 'reset' to clear."""
+        """Set or reset the bot's server-specific 'About Me' bio."""
+
         if not await self._is_owner(ctx.author):
             await ctx.send("❌ You are not authorized to run this command.", ephemeral=True)
             return
