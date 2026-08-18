@@ -22,9 +22,16 @@ class FakeChannel:
         self.name = name
         self.mention = f"<#{id}>"
         self.sent_messages = []
+        self.overwrites = {}
 
     async def send(self, content=None, embed=None):
         self.sent_messages.append((content, embed))
+
+    def overwrites_for(self, role):
+        return SN(send_messages=True, send_messages_in_threads=True, create_public_threads=True)
+
+    async def set_permissions(self, role, overwrite=None):
+        self.overwrites[role] = overwrite
 
 
 class FakeRole:
@@ -35,7 +42,6 @@ class FakeRole:
 
     def __lt__(self, other):
         return self.position < getattr(other, "position", 999)
-
 
 
 class FakeMember:
@@ -51,6 +57,7 @@ class FakeMember:
         self.stripped = False
         self.kicked = False
         self.banned = False
+        self.quarantined = False
 
     async def remove_roles(self, *roles, reason=None):
         self.stripped = True
@@ -59,9 +66,11 @@ class FakeMember:
     async def kick(self, reason=None):
         self.kicked = True
 
+    async def timeout(self, duration, reason=None):
+        self.quarantined = True
+
     async def send(self, embed=None):
         pass
-
 
 
 class FakeGuild:
@@ -73,6 +82,8 @@ class FakeGuild:
         self.me = FakeMember(id=888, name="HelixBot", roles=[SN(name="HelixRole", position=100)])
         self.channels = {}
         self.members = {}
+        self.text_channels = []
+        self.default_role = FakeRole(name="@everyone", position=0, id=505)
 
     def get_member(self, user_id):
         return self.members.get(user_id)
@@ -83,6 +94,16 @@ class FakeGuild:
     async def ban(self, user, reason=None, delete_message_days=1):
         if isinstance(user, FakeMember):
             user.banned = True
+
+    async def create_text_channel(self, name, category=None, reason=None):
+        ch = FakeChannel(id=random_id(), name=name)
+        self.text_channels.append(ch)
+        return ch
+
+
+def random_id():
+    import random
+    return random.randint(1000, 9999)
 
 
 @pytest.mark.asyncio
@@ -127,17 +148,19 @@ async def test_antinuke_threshold_and_punishment(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_antinuke_permission_abuse_and_webhooks(monkeypatch):
+async def test_antinuke_strict_mode(monkeypatch):
+    """Verify strict mode immediately bans on 1st unauthorized action."""
     bot = commands.Bot(command_prefix="!", intents=discord.Intents.default(), help_command=None)
     cog = Moderation(bot=bot)
     await bot.add_cog(cog)
 
     guild = FakeGuild()
-    attacker = FakeMember(id=888, name="PermissionAbuser")
-    guild.members[888] = attacker
+    attacker = FakeMember(id=444, name="InstantNuker")
+    guild.members[444] = attacker
 
     fake_config = {
         "antinuke_enabled": True,
+        "antinuke_strict": True,
         "antinuke_punishment": "ban",
         "antinuke_whitelisted_users": []
     }
@@ -151,10 +174,9 @@ async def test_antinuke_permission_abuse_and_webhooks(monkeypatch):
     monkeypatch.setattr(mod_module, "get_guild_config", fake_get_config)
     monkeypatch.setattr(mod_module, "log_action", fake_log_action)
 
-    # 3 permission abuse detections trigger ban
-    for _ in range(3):
-        await cog._check_and_trigger_antinuke(guild, "permission_abuse", fallback_executor=attacker)
 
+    # 1st action triggers instant ban because strict mode is ON
+    await cog._check_and_trigger_antinuke(guild, "role_delete", fallback_executor=attacker)
     assert attacker.banned is True
 
 
@@ -168,11 +190,6 @@ async def test_antinuke_category_whitelisting(monkeypatch):
     user_whitelisted = FakeMember(id=555, name="ScopedUser", roles=[FakeRole(name="UserRole", position=5, id=5)])
     guild.members[555] = user_whitelisted
 
-    role_whitelisted = FakeMember(id=666, name="ScopedRoleUser", roles=[FakeRole(name="TrustedRole", position=15, id=15)])
-    guild.members[666] = role_whitelisted
-
-
-    # User 555 is whitelisted for "channel_delete", Role 15 is whitelisted for "role_delete"
     fake_config = {
         "antinuke_enabled": True,
         "antinuke_punishment": "ban",
@@ -195,4 +212,37 @@ async def test_antinuke_category_whitelisting(monkeypatch):
         await cog._check_and_trigger_antinuke(guild, "role_delete", fallback_executor=user_whitelisted)
     assert user_whitelisted.banned is True
 
+
+@pytest.mark.asyncio
+async def test_antinuke_verified_admin_check(monkeypatch):
+    """Verify only Server Owner or Whitelisted Admins can edit Anti-Nuke config."""
+    bot = commands.Bot(command_prefix="!", intents=discord.Intents.default(), help_command=None)
+    cog = Moderation(bot=bot)
+    await bot.add_cog(cog)
+
+    guild = FakeGuild(owner_id=111)
+    owner = FakeMember(id=111, name="Owner")
+    whitelisted_admin = FakeMember(id=222, name="WLAdmin")
+    unverified_admin = FakeMember(id=333, name="NormalAdmin")
+
+    fake_config = {
+        "antinuke_enabled": True,
+        "antinuke_whitelisted_users": {"222": ["config"]}
+    }
+
+    async def fake_get_config(gid):
+        return fake_config
+
+    monkeypatch.setattr(mod_module, "get_guild_config", fake_get_config)
+
+    ctx_owner = SN(guild=guild, author=owner, send=lambda *a, **k: None)
+    ctx_wl = SN(guild=guild, author=whitelisted_admin, send=lambda *a, **k: None)
+    ctx_unverified = SN(guild=guild, author=unverified_admin, send=lambda *a, **k: None)
+
+    # Owner passes
+    assert await cog._is_antinuke_admin(ctx_owner) is True
+    # Whitelisted Admin with 'config' category passes
+    assert await cog._is_antinuke_admin(ctx_wl) is True
+    # Unverified Admin is blocked
+    assert await cog._is_antinuke_admin(ctx_unverified) is False
 

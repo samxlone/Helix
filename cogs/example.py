@@ -34,12 +34,14 @@ class Example(commands.Cog):
         if self.bot.user and self.bot.user.display_avatar:
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
 
-        embed.set_footer(text=f"{self._owner_text()} • Select a category below")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot, extra_text="Select a category below")
         await ctx.send(embed=embed, view=HelpDropdownView(self.bot, prefix))
 
+
     def _owner_text(self) -> str:
-        owner = getattr(self.bot, "owner_user", None)
-        return f"Created & owned by {owner.name}" if owner else "Your server companion"
+        return "Made by ! SAM x LONE with ❤"
+
 
 
 class HelpDropdownView(discord.ui.View):
@@ -172,10 +174,10 @@ class HelpSelect(discord.ui.Select):
                 f"• `{self.prefix}prefixless_list` — *(Owner only)* List all users with prefix-less permissions."
             )
 
-        owner = getattr(self.bot, "owner_user", None)
-        owner_text = f"Created & owned by {owner.name}" if owner else "Your server companion"
-        embed.set_footer(text=f"{owner_text} • Select another category below")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot, extra_text="Select another category below")
         await interaction.response.edit_message(embed=embed, view=self.view)
+
 
 
 async def setup(bot):

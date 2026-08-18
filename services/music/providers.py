@@ -156,20 +156,77 @@ class YouTubeProvider(Provider):
     @staticmethod
     def _extract_info(url: str, ytdl):
         """Blocking yt-dlp extraction to run in thread pool."""
-        # Disable playlist processing - extract only single video info
         ydl_opts = {
             "skip_download": True,
             "quiet": True,
             "no_warnings": True,
-            "format": "bestaudio",
-            "no_playlist": True,  # IMPORTANT: don't treat URL as playlist
-            "socket_timeout": 5,  # socket timeout for network requests
+            "format": "bestaudio/best",
+            "no_playlist": True,
+            "socket_timeout": 10,
+            "nocheckcertificate": True,
+            "geo_bypass": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["tvhtml5", "android", "ios", "mweb"],
+
+                    "skip": ["dash", "hls"],
+                }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
         }
+
+        # Attempt 1: Standard YouTube extraction with Android/iOS client spoofing
         try:
             with ytdl.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
-                return info
+                if info:
+                    return info
         except Exception as exc:
-            logger.warning("yt-dlp extraction failed for %s: %s", url, exc)
-            return None
+            logger.warning("Primary yt-dlp extraction failed for %s: %s", url, exc)
+
+        # Attempt 2: Fallback Android-only client extraction
+        try:
+            ydl_opts_fallback = dict(ydl_opts)
+            ydl_opts_fallback["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["android"],
+                }
+            }
+            with ytdl.YoutubeDL(ydl_opts_fallback) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info:
+                    return info
+        except Exception as exc:
+            logger.warning("Secondary yt-dlp extraction failed for %s: %s", url, exc)
+
+        # Attempt 3: If search query and YouTube is bot-blocked, fallback to SoundCloud search
+        if not (url.startswith("http://") or url.startswith("https://")):
+            clean_query = url.replace("ytsearch1:", "").replace("ytsearch:", "").strip()
+            sc_query = f"scsearch1:{clean_query}"
+            logger.info("Attempting SoundCloud fallback search for: %s", sc_query)
+            try:
+                sc_opts = {
+                    "skip_download": True,
+                    "quiet": True,
+                    "no_warnings": True,
+                    "format": "bestaudio/best",
+                    "no_playlist": True,
+                    "socket_timeout": 10,
+                }
+                with ytdl.YoutubeDL(sc_opts) as ydl:
+                    info = ydl.extract_info(sc_query, download=False)
+                    if info:
+                        return info
+            except Exception as sc_exc:
+                logger.warning("SoundCloud fallback extraction failed for %s: %s", sc_query, sc_exc)
+
+        return None
+
+
+YTDLPProvider = YouTubeProvider
+YtDlpProvider = YouTubeProvider
+
 

@@ -43,8 +43,11 @@ class DebugCog(commands.Cog):
             pass
 
         while True:
-
             try:
+                if not self.bot.is_ready() or getattr(self.bot, "ws", None) is None:
+                    await asyncio.sleep(5)
+                    continue
+
                 cfg = await get_guild_config(0)
                 entries = cfg.get("presence_rotation") or []
                 enabled = cfg.get("presence_rotation_enabled", False)
@@ -72,8 +75,9 @@ class DebugCog(commands.Cog):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("Presence rotation failed; retrying in 15 seconds.")
+                logger.warning("Presence rotation encounter waiting for gateway; retrying in 15 seconds.")
                 await asyncio.sleep(15)
+
 
     async def _is_owner(self, user):
         cfg_owner = app_config.get("owner_id")
@@ -103,12 +107,8 @@ class DebugCog(commands.Cog):
 
     @commands.command(name="voice_debug")
     async def voice_debug(self, ctx: commands.Context):
-        """Run quick voice environment diagnostics (owner-only).
+        """Run quick voice environment diagnostics (owner-only)."""
 
-        Reports whether davey and PyNaCl are importable, whether discord.opus is loaded,
-        and whether ffmpeg is available on PATH (and its version).
-        Usage: !voice_debug
-        """
         if not await self._is_owner(ctx.author):
             await ctx.send("You are not authorized to run this command.")
             return
@@ -151,9 +151,10 @@ class DebugCog(commands.Cog):
             if ff:
                 # try run ffmpeg -version
                 try:
-                    proc = subprocess.run([ff, "-version"], capture_output=True, text=True, timeout=3)
-                    ver = proc.stdout.splitlines()[0] if proc.stdout else proc.stderr.splitlines()[0]
+                    proc = subprocess.run([ff, "-nostdin", "-version"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
+                    ver = proc.stdout.splitlines()[0] if proc.stdout else (proc.stderr.splitlines()[0] if proc.stderr else "version unknown")
                     parts.append(f"ffmpeg: found at {ff} -> {ver}")
+
                 except Exception as exc:
                     parts.append(f"ffmpeg found at {ff} but version check failed: {exc}")
             else:

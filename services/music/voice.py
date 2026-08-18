@@ -11,6 +11,37 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def ensure_opus_loaded():
+    """Ensure Opus encoder library is loaded for Discord voice playback."""
+    try:
+        import discord
+        if not discord.opus.is_loaded():
+            import ctypes.util
+            opus_path = ctypes.util.find_library("opus")
+            if opus_path:
+                try:
+                    discord.opus.load_opus(opus_path)
+                    logger.info("Loaded Opus library from system find_library: %s", opus_path)
+                    return True
+                except Exception:
+                    pass
+
+            for lib_name in ["libopus.so.0", "libopus.so", "libopus.so.1", "libopus-0.dll", "libopus.dylib"]:
+                try:
+                    discord.opus.load_opus(lib_name)
+                    if discord.opus.is_loaded():
+                        logger.info("Successfully loaded Opus library: %s", lib_name)
+                        return True
+                except Exception:
+                    pass
+            logger.warning("Could not automatically locate Opus library. Ensure PyNaCl or libopus is installed.")
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("Error loading Opus library: %s", exc)
+        return False
+
+
 async def connect_to_channel(channel) -> Optional[object]:
     """Connect to a discord.VoiceChannel and return the VoiceClient.
 
@@ -24,20 +55,51 @@ async def connect_to_channel(channel) -> Optional[object]:
         logger.exception("discord library not available for voice connection")
         raise
 
-    # If opus/voice support is not loaded, connecting may fail. Provide early guidance.
-    try:
-        if not getattr(discord, "opus", None) or not discord.opus.is_loaded():
-            logger.warning("Discord Opus not loaded - voice requires PyNaCl/opus. Attempting to connect may fail.")
-    except Exception:
-        # ignore any issues checking opus
-        pass
+    ensure_opus_loaded()
+
 
     if channel is None:
         raise ValueError("channel is required")
 
-    # Connect to the channel
-    vc = await channel.connect()
-    return vc
+    guild = getattr(channel, "guild", None)
+    vc = getattr(guild, "voice_client", None) if guild else None
+
+    if vc:
+        current_ch = getattr(vc, "channel", None)
+        if current_ch and getattr(current_ch, "id", None) == getattr(channel, "id", None):
+            return vc
+        try:
+            if hasattr(vc, "move_to"):
+                await vc.move_to(channel)
+                return vc
+        except Exception as exc:
+            logger.warning("Failed to move existing voice client: %s. Disconnecting stale connection.", exc)
+            try:
+                if hasattr(vc, "disconnect"):
+                    await vc.disconnect(force=True)
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+
+    try:
+        vc = await channel.connect()
+        return vc
+    except Exception as exc:
+        err_str = str(exc)
+        if "Already connected" in err_str:
+            vc = getattr(guild, "voice_client", None) if guild else None
+            if vc:
+                current_ch = getattr(vc, "channel", None)
+                if current_ch and getattr(current_ch, "id", None) != getattr(channel, "id", None):
+                    try:
+                        if hasattr(vc, "move_to"):
+                            await vc.move_to(channel)
+                    except Exception:
+                        pass
+                return vc
+        raise
+
+
 
 
 async def play_track_on_voice(voice_client, track, *, loop: asyncio.AbstractEventLoop = None, options: str = "-vn", seek_time: int = 0, volume: float = 1.0):
@@ -51,7 +113,9 @@ async def play_track_on_voice(voice_client, track, *, loop: asyncio.AbstractEven
         logger.warning("Voice client is not connected to any voice channel.")
         return False
     if not track or not getattr(track, "stream_url", None):
-        raise ValueError("track with stream_url required")
+        logger.error("Cannot play track '%s': stream_url is missing or invalid.", getattr(track, "title", "unknown"))
+        return False
+
 
 
     try:
@@ -60,8 +124,9 @@ async def play_track_on_voice(voice_client, track, *, loop: asyncio.AbstractEven
         logger.exception("discord library not available for playback")
         raise
 
-    # Prepare ffmpeg audio source with reconnect options for HTTP streams
-    before_options = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+    # Prepare ffmpeg audio source with -nostdin and reconnect options for HTTP streams
+    before_options = "-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+
     if seek_time > 0:
         before_options += f" -ss {seek_time}"
     

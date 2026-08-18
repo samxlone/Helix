@@ -23,8 +23,7 @@ class ConfigCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.hybrid_group(name="config", invoke_without_command=True)
-    @commands.guild_only()
+    @commands.group(name="config", invoke_without_command=True)
     async def config_group(self, ctx: commands.Context):
         """Guild configuration management"""
         await ctx.send_help(ctx.command)
@@ -116,6 +115,81 @@ class ConfigCog(commands.Cog):
             logger.exception("Failed to sync commands: %s", exc)
             await ctx.send(f"❌ Failed to sync commands: {exc}", ephemeral=True)
 
+    @commands.hybrid_command(name="trust")
+    @commands.guild_only()
+    async def trust_user(self, ctx: commands.Context, member: discord.Member):
+        """Grant Co-Owner / Trusted Admin status to a member (Owner / Admin only)."""
+        if ctx.author.id != ctx.guild.owner_id:
+            cfg_owner = app_config.get("owner_id")
+            if not cfg_owner or int(cfg_owner) != ctx.author.id:
+                if not await self.bot.is_owner(ctx.author):
+                    await ctx.send("❌ Only the Server Owner or Bot Owner can grant Co-Owner / Trusted status.", ephemeral=True)
+                    return
+
+        if member.id == ctx.author.id:
+            await ctx.send("❌ You are already the owner!", ephemeral=True)
+            return
+
+        from utils.trust import add_trusted
+        success = await add_trusted(ctx.guild.id, member.id, ctx.author.id)
+
+        if success:
+            embed = discord.Embed(
+                title="👑 Co-Owner / Trusted Admin Added",
+                description=f"Granted **Co-Owner / Trusted Admin** permissions to {member.mention}!\n"
+                            f"They now have high-level trust & admin privileges in **{ctx.guild.name}**.",
+                color=discord.Color.gold()
+            )
+            embed.set_footer(text=f"Granted by {ctx.author.display_name}")
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Failed to add trusted member.", ephemeral=True)
+
+    @commands.hybrid_command(name="untrust")
+    @commands.guild_only()
+    async def untrust_user(self, ctx: commands.Context, member: discord.Member):
+        """Revoke Co-Owner / Trusted Admin status from a member (Owner / Admin only)."""
+        if ctx.author.id != ctx.guild.owner_id:
+            cfg_owner = app_config.get("owner_id")
+            if not cfg_owner or int(cfg_owner) != ctx.author.id:
+                if not await self.bot.is_owner(ctx.author):
+                    await ctx.send("❌ Only the Server Owner or Bot Owner can revoke Co-Owner status.", ephemeral=True)
+                    return
+
+        from utils.trust import remove_trusted
+        success = await remove_trusted(ctx.guild.id, member.id)
+
+        if success:
+            await ctx.send(f"🔇 Revoked Trusted Co-Owner status from {member.mention}.")
+        else:
+            await ctx.send("❌ Failed to remove trusted member.", ephemeral=True)
+
+    @commands.hybrid_command(name="trusted")
+    @commands.guild_only()
+    async def list_trusted(self, ctx: commands.Context):
+        """List all Co-Owners & Trusted Admins for this server."""
+        from utils.trust import get_trusted_users
+
+        users = await get_trusted_users(ctx.guild.id)
+        
+        embed = discord.Embed(
+            title=f"👑 Trusted Co-Owners — {ctx.guild.name}",
+            color=discord.Color.gold()
+        )
+        owner_str = ctx.guild.owner.mention if ctx.guild.owner else f"<@{ctx.guild.owner_id}>"
+        embed.add_field(name="👑 Guild Owner", value=owner_str, inline=False)
+
+        if users:
+            trusted_mentions = []
+            for u in users:
+                m = ctx.guild.get_member(u["user_id"])
+                mention = m.mention if m else f"<@{u['user_id']}>"
+                trusted_mentions.append(f"• {mention} (Granted by <@{u['granted_by']}>)")
+            embed.add_field(name="🛡️ Co-Owners & Trusted Admins", value="\n".join(trusted_mentions), inline=False)
+        else:
+            embed.add_field(name="🛡️ Co-Owners & Trusted Admins", value="*No additional trusted co-owners set.*", inline=False)
+
+        await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="setprefix")
     @commands.guild_only()

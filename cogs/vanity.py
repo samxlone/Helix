@@ -70,10 +70,11 @@ class VanityCog(commands.Cog):
     async def before_check_loop(self):
         await self.bot.wait_until_ready()
 
-    @commands.hybrid_group(name="vanity", invoke_without_command=True)
+    @commands.group(name="vanity", invoke_without_command=True)
     async def vanity_group(self, ctx: commands.Context):
         """Check and track Discord vanity URLs for availability alerts."""
         await ctx.send_help(ctx.command)
+
 
     async def _checkvanity_impl(self, ctx: commands.Context, vanity: str):
         code = clean_vanity_code(vanity)
@@ -81,18 +82,20 @@ class VanityCog(commands.Cog):
             await ctx.send("❌ Please provide a valid vanity URL or code (e.g. `!checkvanity helix`).", ephemeral=True)
             return
 
+        from utils.embed_utils import HELIX_COLOR, HELIX_SUCCESS, HELIX_DANGER, set_owner_footer
         status, data = await check_discord_vanity(code)
-
         if status == "available":
             embed = discord.Embed(
-                title="🟢 Vanity Available!",
+                title="🟢 Vanity Available to Claim",
                 description=(
-                    f"The vanity URL **`discord.gg/{code}`** is **100% AVAILABLE** to claim!\n\n"
-                    f"🔗 **Invite Link**: `https://discord.gg/{code}`"
+                    f"### 🔗 `discord.gg/{code}`\n\n"
+                    f"> • **Status:** `100% Available`\n"
+                    f"> • **Direct URL:** [https://discord.gg/{code}](https://discord.gg/{code})\n\n"
+                    f"*You can claim this vanity URL on your Level 3 boosted server!*"
                 ),
-                color=discord.Color.green()
+                color=HELIX_SUCCESS
             )
-            embed.set_footer(text=f"Checked by {ctx.author.display_name}")
+            set_owner_footer(embed, self.bot, extra_text=f"Checked by {ctx.author.display_name}")
             await ctx.send(embed=embed)
 
         elif status == "taken":
@@ -104,15 +107,16 @@ class VanityCog(commands.Cog):
             embed = discord.Embed(
                 title="🔴 Vanity Taken",
                 description=(
-                    f"The vanity URL **`discord.gg/{code}`** is currently **TAKEN** by **{guild_name}**.\n\n"
-                    f"👥 **Members**: `{members:,}` | 🟢 **Online**: `{online:,}`\n"
-                    f"💡 *Tip: Use `!trackvanity {code}` to get a DM as soon as it becomes available!*"
+                    f"### 🔗 `discord.gg/{code}`\n\n"
+                    f"> • **Owner Server:** **{guild_name}**\n"
+                    f"> • **Members:** `{members:,}` • **Online:** `{online:,}`\n\n"
+                    f"💡 *Use `!trackvanity {code}` to receive a direct alert the second this URL releases!*"
                 ),
-                color=discord.Color.red()
+                color=HELIX_DANGER
             )
             if icon_url:
                 embed.set_thumbnail(url=icon_url)
-            embed.set_footer(text=f"Checked by {ctx.author.display_name}")
+            set_owner_footer(embed, self.bot, extra_text=f"Checked by {ctx.author.display_name}")
             await ctx.send(embed=embed)
 
         elif status == "invalid":
@@ -137,17 +141,20 @@ class VanityCog(commands.Cog):
             await ctx.send("❌ Please provide a valid vanity URL or code (e.g. `!trackvanity helix`).", ephemeral=True)
             return
 
+        from utils.embed_utils import HELIX_COLOR, HELIX_SUCCESS, set_owner_footer
         status, data = await check_discord_vanity(code)
         if status == "available":
             embed = discord.Embed(
-                title="🎉 Vanity Already Available!",
+                title="🎉 Vanity Already Available",
                 description=(
-                    f"The vanity URL **`discord.gg/{code}`** is ALREADY **AVAILABLE** right now!\n\n"
-                    f"🔗 **Claim Link**: `https://discord.gg/{code}`\n\n"
-                    f"Go claim it immediately on your server!"
+                    f"### 🔗 `discord.gg/{code}`\n\n"
+                    f"> **Status:** Currently available right now!\n"
+                    f"> **Direct URL:** [https://discord.gg/{code}](https://discord.gg/{code})\n\n"
+                    f"*Go claim it immediately on your server.*"
                 ),
-                color=discord.Color.green()
+                color=HELIX_SUCCESS
             )
+            set_owner_footer(embed, self.bot)
             await ctx.send(embed=embed)
             return
 
@@ -157,15 +164,16 @@ class VanityCog(commands.Cog):
             return
 
         embed = discord.Embed(
-            title="📡 Vanity Tracking Active",
+            title="📡 Vanity Radar Activated",
             description=(
-                f"Now tracking **`discord.gg/{code}`** for {ctx.author.mention}!\n\n"
-                f"🔔 **Notification**: As soon as this vanity becomes available, Helix will send you a **Direct Message**!\n"
-                f"📋 View tracked vanities anytime using `!myvanities`."
+                f"### 🔗 `discord.gg/{code}`\n\n"
+                f"> **Assigned User:** {ctx.author.mention}\n"
+                f"> **Mode:** `Continuous 60s Radar Scan`\n\n"
+                f"🔔 *The instant this vanity becomes available, Helix will send you an urgent Direct Message.*"
             ),
-            color=discord.Color.blue()
+            color=HELIX_COLOR
         )
-        embed.set_footer(text="Ensure your DMs are open to receive alerts!")
+        set_owner_footer(embed, self.bot, extra_text="Ensure your DMs are open")
         await ctx.send(embed=embed)
 
     @vanity_group.command(name="track")

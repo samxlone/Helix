@@ -177,8 +177,9 @@ class AuditLogger(commands.Cog):
             return
 
         channel = await self._get_log_channel(before.guild, "msg_edit")
-        if not channel:
+        if not channel or before.channel.id == channel.id:
             return
+
 
         embed = discord.Embed(
             title="Message Edited",
@@ -195,11 +196,10 @@ class AuditLogger(commands.Cog):
         embed.add_field(name="After", value=after_content, inline=False)
         embed.add_field(name="User ID", value=f"`{before.author.id}`", inline=True)
 
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created & Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-        else:
-            embed.set_footer(text="Owned by Bot Owner")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+
 
         try:
             await channel.send(embed=embed)
@@ -212,8 +212,9 @@ class AuditLogger(commands.Cog):
             return
 
         channel = await self._get_log_channel(message.guild, "msg_delete")
-        if not channel:
+        if not channel or message.channel.id == channel.id:
             return
+
 
         embed = discord.Embed(
             title="Message Deleted",
@@ -231,11 +232,10 @@ class AuditLogger(commands.Cog):
             files_str = ", ".join(f"`{a.filename}`" for a in message.attachments)
             embed.add_field(name="Attachments", value=files_str, inline=False)
 
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created & Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-        else:
-            embed.set_footer(text="Owned by Bot Owner")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+
 
         try:
             await channel.send(embed=embed)
@@ -266,11 +266,10 @@ class AuditLogger(commands.Cog):
             embed.add_field(name="Security Alert", value="**New Account Warning:** This account is less than 7 days old!", inline=False)
             embed.color = discord.Color.gold()
 
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created & Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-        else:
-            embed.set_footer(text="Owned by Bot Owner")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+
 
         try:
             await channel.send(embed=embed)
@@ -300,11 +299,10 @@ class AuditLogger(commands.Cog):
                 roles_str += f" ...and {len(roles) - 15} more"
             embed.add_field(name="Roles Held", value=roles_str, inline=False)
 
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created & Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-        else:
-            embed.set_footer(text="Owned by Bot Owner")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+
 
         try:
             await channel.send(embed=embed)

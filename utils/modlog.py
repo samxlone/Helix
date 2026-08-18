@@ -77,3 +77,54 @@ async def fetch_logs_for_target(guild_id: int, target_id: int, action: Optional[
     except Exception:
         logger.exception("Failed to fetch mod logs for guild %s target %s", guild_id, target_id)
     return out
+
+
+async def remove_warnings_for_target(guild_id: int, target_id: int, count: int = 1) -> int:
+    """Remove up to `count` warnings for a user in a guild. If count <= 0, remove all."""
+    try:
+        async with get_connection() as conn:
+            if count <= 0:
+                cur = await conn.execute(
+                    "DELETE FROM mod_logs WHERE guild_id = ? AND target_id = ? AND action = 'warn'",
+                    (guild_id, target_id)
+                )
+                removed = cur.rowcount
+            else:
+                cur = await conn.execute(
+                    "SELECT id FROM mod_logs WHERE guild_id = ? AND target_id = ? AND action = 'warn' ORDER BY id DESC LIMIT ?",
+                    (guild_id, target_id, count)
+                )
+                rows = await cur.fetchall()
+                await cur.close()
+                if not rows:
+                    return 0
+
+                ids_to_del = [r["id"] for r in rows]
+                placeholders = ",".join(["?"] * len(ids_to_del))
+                cur = await conn.execute(
+                    f"DELETE FROM mod_logs WHERE id IN ({placeholders})",
+                    ids_to_del
+                )
+                removed = cur.rowcount
+
+            await conn.commit()
+            return removed
+    except Exception:
+        logger.exception("Failed to remove warnings for guild %s target %s", guild_id, target_id)
+        return 0
+
+
+async def remove_warning_by_case(guild_id: int, case_id: int) -> bool:
+    """Remove a specific warning by case ID."""
+    try:
+        async with get_connection() as conn:
+            cur = await conn.execute(
+                "DELETE FROM mod_logs WHERE guild_id = ? AND id = ? AND action = 'warn'",
+                (guild_id, case_id)
+            )
+            await conn.commit()
+            return cur.rowcount > 0
+    except Exception:
+        logger.exception("Failed to remove warning case %s for guild %s", case_id, guild_id)
+        return False
+

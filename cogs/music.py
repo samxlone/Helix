@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Optional
 import discord
 from discord import app_commands, Interaction
@@ -13,15 +14,11 @@ from services.music.voice import connect_to_channel
 logger = logging.getLogger(__name__)
 
 
-def format_track_link(title: str, url: str) -> str:
-    title_str = (title or "Unknown Track").strip()
-    url_str = (url or "").strip()
-    if title_str.startswith("http://") or title_str.startswith("https://") or title_str == url_str:
-        return f"**{title_str}**"
-    safe_title = title_str.replace("[", "\\[").replace("]", "\\]")
-    if url_str:
-        return f"**[{safe_title}]({url_str})**"
-    return f"**{safe_title}**"
+def format_track_link(title: str, url: str = "") -> str:
+    """Format track title cleanly in bold without blue hyperlinks or backslash escaping."""
+    title_str = (title or "Unknown Track").strip().replace('\\', '')
+    return f"**{title_str}**"
+
 
 
 class MusicCog(commands.Cog):
@@ -41,16 +38,6 @@ class MusicCog(commands.Cog):
 
     async def _connect_to_voice(self, ctx: commands.Context):
         """Helper to check voice client connection state and connect/move to the user's voice channel."""
-        vc = self.voice_clients.get(ctx.guild.id)
-        if vc and hasattr(vc, "is_connected") and vc.is_connected():
-            return vc, None
-
-        # fallback to discord.py's native voice client state tracking
-        vc = ctx.guild.voice_client
-        if vc and hasattr(vc, "is_connected") and vc.is_connected():
-            self.voice_clients[ctx.guild.id] = vc
-            return vc, None
-
         if not ctx.author.voice or not ctx.author.voice.channel:
             return None, "You are not connected to a voice channel."
         channel = ctx.author.voice.channel
@@ -67,18 +54,9 @@ class MusicCog(commands.Cog):
             pass
 
         try:
-            # warn if opus/voice support is missing
-            try:
-                import discord as _discord
-                if not getattr(_discord, "opus", None) or not _discord.opus.is_loaded():
-                    logger.warning("Opus not loaded: voice may not work. Ensure PyNaCl is installed and opus is available.")
-            except Exception:
-                logger.debug("Failed to check discord.opus status")
-
             vc = await connect_to_channel(channel)
             self.voice_clients[ctx.guild.id] = vc
             player = self._ensure_player(ctx.guild.id)
-            player.volume = 1.0  # Reset volume to 100% on connection
             return vc, None
         except Exception as exc:
             logger.exception("Failed to connect to voice channel: %s", exc)
@@ -87,7 +65,9 @@ class MusicCog(commands.Cog):
             msg += f"\nError: {exc}"
             return None, msg
 
-    @commands.hybrid_command(name="join")
+
+
+    @commands.command(name="join")
     @commands.guild_only()
     async def join(self, ctx: commands.Context):
         """Join your voice channel"""
@@ -98,13 +78,16 @@ class MusicCog(commands.Cog):
             return
         await ctx.send(f"Connected to {ctx.author.voice.channel.name}")
 
-    @commands.hybrid_command(name="leave")
+    @commands.command(name="leave")
     @commands.guild_only()
     async def leave(self, ctx: commands.Context):
+
         """Leave the voice channel and stop playback"""
         p = self._ensure_player(ctx.guild.id)
         p.volume = 1.0  # Reset volume to 100% on leave
+        p.reset_eq()    # Reset EQ preset back to normal (flat) on leave
         vc = self.voice_clients.get(ctx.guild.id)
+
 
         # Clear queue and stop player loop tasks
         p.queue.clear()
@@ -142,17 +125,49 @@ class MusicCog(commands.Cog):
         p = self._ensure_player(ctx.guild.id)
         p.text_channel = ctx.channel
 
-        track = await resolve(query, ctx.author.id)
-        if not track:
+        res = await resolve(query, ctx.author.id)
+        if not res:
             await ctx.send("Could not find or resolve track.", ephemeral=True)
             return
 
-        pos = p.get_queue().enqueue(track)
+        from services.music.ui import format_time
+        was_playing = (vc is not None and vc.is_playing()) or (p.get_queue().current is not None)
 
-        # start voice playback
-        logger.info("VoiceClient connected for guild %s, starting voice playback", ctx.guild.id)
-        p.start_voice_playback(vc)
-        await ctx.send(f"Queued: {track.title} (position {pos})")
+        if isinstance(res, list):
+            first_pos = None
+            for t in res:
+                pos = p.get_queue().enqueue(t)
+                if first_pos is None:
+                    first_pos = pos
+            if not was_playing:
+                p.suppress_first_track_msg = True
+            p.start_voice_playback(vc)
+
+            first_track = res[0] if res else None
+            first_title = first_track.title.replace('\\', '') if first_track else "Playlist"
+            dur_str = f"( {format_time(first_track.duration)} ) " if (first_track and first_track.duration) else ""
+
+            if not was_playing:
+                if len(res) == 1:
+                    await ctx.send(f"🎶 **{first_title}** started playing {dur_str}")
+                else:
+                    await ctx.send(f"🎶 **{first_title}** and **{len(res) - 1}** tracks added to the queue {dur_str}- starting at position **1**")
+            else:
+                await ctx.send(f"🎶 **{first_title}** and **{len(res) - 1}** tracks added to the queue {dur_str}- starting at position **{first_pos}**")
+        else:
+            if not was_playing:
+                p.suppress_first_track_msg = True
+            pos = p.get_queue().enqueue(res)
+            p.start_voice_playback(vc)
+
+            clean_title = res.title.replace('\\', '')
+            dur_str = f"( {format_time(res.duration)} ) " if res.duration else ""
+
+            if not was_playing:
+                await ctx.send(f"🎶 **{clean_title}** started playing {dur_str}")
+            else:
+                await ctx.send(f"🎶 **{clean_title}** added to the queue {dur_str}- at position **{pos}**")
+
 
     @commands.hybrid_command(name="pause")
     @commands.guild_only()
@@ -210,31 +225,36 @@ class MusicCog(commands.Cog):
             await ctx.send("Nothing is currently playing. 🎵", ephemeral=True)
             return
 
-        import discord
+        from utils.embed_utils import HELIX_COLOR, set_owner_footer
         embed = discord.Embed(
-            title="Now Playing 🎶",
-            description=format_track_link(track.title, track.url),
-            color=discord.Color.blurple()
+            title="Now Playing",
+            description=f"### {format_track_link(track.title, track.url)}",
+            color=HELIX_COLOR
         )
+        
+        info_bits = []
         if track.author:
-            embed.add_field(name="Uploader/Artist", value=track.author, inline=True)
+            info_bits.append(f"👤 `{track.author}`")
         if track.duration:
             mins, secs = divmod(track.duration, 60)
             hours, mins = divmod(mins, 60)
-            duration_str = f"{hours:02d}:{mins:02d}:{secs:02d}" if hours else f"{mins:02d}:{secs:02d}"
-            embed.add_field(name="Duration", value=duration_str, inline=True)
+            dur_str = f"{hours:02d}:{mins:02d}:{secs:02d}" if hours else f"{mins:02d}:{secs:02d}"
+            info_bits.append(f"⏱️ `{dur_str}`")
         if track.provider:
-            embed.add_field(name="Source", value=track.provider.capitalize(), inline=True)
+            info_bits.append(f"🎧 `{track.provider.capitalize()}`")
+
+        req_text = f"<@{track.requester}>" if track.requester else "*Autoplay Recommendation*"
+        
+        meta_desc = f"> {' • '.join(info_bits)}\n> 📻 **Requested By:** {req_text}"
+        embed.add_field(name="Track Information", value=meta_desc, inline=False)
+
         if track.thumbnail:
             embed.set_thumbnail(url=track.thumbnail)
             
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created by {owner.name} • Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-        else:
-            embed.set_footer(text="Owned by Bot Owner")
-            
+        set_owner_footer(embed, self.bot, extra_text="Lossless Audio Engine")
         await ctx.send(embed=embed, view=NowPlayingView(self.bot, ctx.guild.id, self))
+
+
 
     @commands.hybrid_command(name="np")
     @commands.guild_only()
@@ -270,7 +290,7 @@ class MusicCog(commands.Cog):
     @commands.hybrid_command(name="queue", aliases=["q"])
     @commands.guild_only()
     async def queue(self, ctx: commands.Context):
-        """View the current music queue"""
+        """View the current music queue with interactive pagination buttons"""
         p = self._ensure_player(ctx.guild.id)
         q = p.get_queue()
         current_track = q.now_playing()
@@ -280,74 +300,9 @@ class MusicCog(commands.Cog):
             await ctx.send("The music queue is currently empty. 🎵")
             return
 
-        def format_time(seconds: int) -> str:
-            if seconds is None or seconds < 0:
-                return "0:00"
-            mins, secs = divmod(int(seconds), 60)
-            hours, mins = divmod(mins, 60)
-            if hours > 0:
-                return f"{hours:02d}:{mins:02d}:{secs:02d}"
-            return f"{mins:02d}:{secs:02d}"
+        paginator = QueuePaginatorView(self.bot, ctx.guild.id, self, current_track, upcoming)
+        await ctx.send(embed=paginator.make_embed(), view=paginator)
 
-        embed = discord.Embed(
-            title=f"🎵 Music Queue — {ctx.guild.name}",
-            color=discord.Color.dark_teal(),
-        )
-
-        # 1. Now Playing track
-        if current_track:
-            req_mention = f"<@{current_track.requester}>" if current_track.requester else "Unknown"
-            duration_str = format_time(current_track.duration)
-            embed.description = (
-                f"**Now Playing:**\n"
-                f"➡ {format_track_link(current_track.title, current_track.url)}\n"
-                f"• *Requested by:* {req_mention} | *Duration:* `{duration_str}`\n\n"
-                f"**Up Next:**\n"
-            )
-        else:
-            embed.description = "**Now Playing:**\n*Nothing is currently playing.*\n\n**Up Next:**\n"
-
-        # 2. Upcoming tracks
-        if upcoming:
-            upcoming_lines = []
-            for idx, track in enumerate(upcoming[:10], 1):
-                req_mention = f"<@{track.requester}>" if track.requester else "Unknown"
-                duration_str = format_time(track.duration)
-                upcoming_lines.append(
-                    f"`{idx:02d}.` {format_track_link(track.title, track.url)}\n"
-                    f"     *Requested by:* {req_mention} | *Duration:* `{duration_str}`"
-                )
-            embed.description += "\n".join(upcoming_lines)
-
-            if len(upcoming) > 10:
-                embed.description += f"\n\n*...and {len(upcoming) - 10} more track(s)*"
-        else:
-            embed.description += "*No upcoming songs in the queue.*"
-
-        # 3. Status/Metadata footer and fields
-        loop_status = "Off"
-        if q.loop_mode == "song":
-            loop_status = "🔂 Single Track"
-        elif q.loop_mode == "queue":
-            loop_status = "🔁 Entire Queue"
-
-        autoplay_status = "Enabled 📻" if getattr(p, "autoplay_enabled", False) else "Disabled 🔇"
-
-        total_duration = sum((t.duration or 0) for t in upcoming)
-        if current_track:
-            total_duration += (current_track.duration or 0)
-        total_duration_str = format_time(total_duration)
-
-        embed.add_field(name="Tracks in Queue", value=f"`{len(upcoming) + (1 if current_track else 0)}`", inline=True)
-        embed.add_field(name="Total Duration", value=f"`{total_duration_str}`", inline=True)
-        embed.add_field(name="Loop Mode", value=f"`{loop_status}`", inline=True)
-        embed.add_field(name="Autoplay", value=f"`{autoplay_status}`", inline=True)
-
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        owner_text = f" | Created & Owned by {owner.name}" if owner else ""
-        embed.set_footer(text=f"Server: {ctx.guild.name}{owner_text}")
-
-        await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="skip")
     @commands.guild_only()
@@ -533,13 +488,11 @@ class MusicCog(commands.Cog):
             description=pages[0],
             color=discord.Color.blurple()
         )
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Page 1 of {len(pages)} • Created by {owner.name}" if len(pages) > 1 else f"Created by {owner.name}")
-        else:
-            embed.set_footer(text=f"Page 1 of {len(pages)}" if len(pages) > 1 else "Owned by Bot Owner")
-            
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot, extra_text=f"Page 1 of {len(pages)}" if len(pages) > 1 else "")
         await ctx.send(embed=embed, view=view)
+
+
 
     async def _is_owner(self, user):
         from config import config as app_config
@@ -574,35 +527,94 @@ class MusicCog(commands.Cog):
             await ctx.send("❌ Regular users can set volume up to **100%**. Only the Bot Owner can set unrestricted volume.", ephemeral=True)
             return
 
-        player.volume = volume / 100.0
+        new_vol_float = volume / 100.0
+        player.volume = new_vol_float
 
         # Update dynamically on active voice source if playing
         vc = self.voice_clients.get(ctx.guild.id) or getattr(ctx.guild, "voice_client", None)
+        player.set_volume(new_vol_float, vc)
 
         if vc and hasattr(vc, "source") and vc.source:
-            if hasattr(vc.source, "volume"):
-                vc.source.volume = player.volume
+            try:
+                if hasattr(vc.source, "volume"):
+                    vc.source.volume = new_vol_float
+                elif hasattr(vc.source, "original") and hasattr(vc.source.original, "volume"):
+                    vc.source.original.volume = new_vol_float
+            except Exception as e:
+                logger.warning("Could not set volume on voice source: %s", e)
 
         await ctx.send(f"🔊 Volume set to **{volume}%**.")
+
+    @commands.hybrid_command(name="247", aliases=["stay"])
+    @commands.guild_only()
+    async def mode_247(self, ctx: commands.Context):
+        """Toggle 24/7 Radio Mode (keeps Helix connected to the voice channel 24/7)"""
+        p = self._ensure_player(ctx.guild.id)
+        p.is_247 = not getattr(p, "is_247", False)
+        status = "ENABLED 📻" if p.is_247 else "DISABLED 🔇"
+
+        embed = discord.Embed(
+            title=f"📻 24/7 Radio Mode — {status}",
+            description=(
+                f"24/7 Radio Mode is now **{status}** for **{ctx.guild.name}**.\n\n"
+                + ("Helix will remain in your voice channel 24/7!" if p.is_247 else "Helix will leave the voice channel when playback finishes.")
+            ),
+            color=discord.Color.from_rgb(88, 101, 242) if p.is_247 else discord.Color.dark_grey(),
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot, extra_text=f"💎 HELIX MUSIC ENGINE • {ctx.guild.name}")
+        await ctx.send(embed=embed)
+
+
+
+    @commands.hybrid_command(name="karaoke")
+    @commands.guild_only()
+    async def karaoke(self, ctx: commands.Context):
+        """Toggle Karaoke / Vocal Remover audio filter for singing along"""
+        p = self._ensure_player(ctx.guild.id)
+        current_preset = getattr(p, "eq_preset_name", "flat")
+
+        if current_preset == "karaoke":
+            p.eq_preset_name = "flat"
+            p.eq_option = "-vn"
+            msg = "🎤 Karaoke filter **DISABLED**. Restored standard stereo audio."
+        else:
+            p.eq_preset_name = "karaoke"
+            p.eq_option = "-vn -af pan=stereo|c0=c0-c1|c1=c1-c0"
+            msg = "🎤 Karaoke filter **ENABLED**. Center vocals muted for singing along!"
+
+        vc = self.voice_clients.get(ctx.guild.id)
+        restarted = p.restart_current_track(vc)
+        if restarted:
+            msg += " Filter applied to current track."
+        await ctx.send(msg)
+
 
 
 
 
 class NowPlayingView(discord.ui.View):
     def __init__(self, bot, guild_id, cog):
-        super().__init__(timeout=120)  # Active for 2 minutes
+        super().__init__(timeout=None)  # Persistent player controls
         self.bot = bot
         self.guild_id = guild_id
         self.cog = cog
         
-        # Adjust Autoplay button style based on current state
-        p = self.cog._ensure_player(self.guild_id)
-        self.autoplay_button.style = discord.ButtonStyle.success if p.autoplay_enabled else discord.ButtonStyle.secondary
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        logger.exception("NowPlayingView interaction error on %s: %s", item, error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Action failed or timed out.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Action failed or timed out.", ephemeral=True)
+        except Exception:
+            pass
 
     @discord.ui.button(label="Pause", emoji="⏸️", style=discord.ButtonStyle.primary)
     async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        vc = self.cog.voice_clients.get(self.guild_id)
-        if not vc:
+        guild = interaction.guild or self.bot.get_guild(self.guild_id)
+        vc = self.cog.voice_clients.get(self.guild_id) or (guild.voice_client if guild else None)
+        if not vc or not vc.is_connected():
             await interaction.response.send_message("I am not connected to a voice channel.", ephemeral=True)
             return
         if vc.is_paused():
@@ -614,13 +626,15 @@ class NowPlayingView(discord.ui.View):
         try:
             vc.pause()
             await interaction.response.send_message(f"{interaction.user.mention} paused the audio. ⏸️")
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to pause audio: %s", exc)
             await interaction.response.send_message("Failed to pause the audio.", ephemeral=True)
 
     @discord.ui.button(label="Resume", emoji="▶️", style=discord.ButtonStyle.success)
     async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        vc = self.cog.voice_clients.get(self.guild_id)
-        if not vc:
+        guild = interaction.guild or self.bot.get_guild(self.guild_id)
+        vc = self.cog.voice_clients.get(self.guild_id) or (guild.voice_client if guild else None)
+        if not vc or not vc.is_connected():
             await interaction.response.send_message("I am not connected to a voice channel.", ephemeral=True)
             return
         if not vc.is_paused():
@@ -629,36 +643,22 @@ class NowPlayingView(discord.ui.View):
         try:
             vc.resume()
             await interaction.response.send_message(f"{interaction.user.mention} resumed the audio. ▶️")
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to resume audio: %s", exc)
             await interaction.response.send_message("Failed to resume the audio.", ephemeral=True)
 
     @discord.ui.button(label="Queue", emoji="📋", style=discord.ButtonStyle.secondary)
     async def queue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         p = self.cog._ensure_player(self.guild_id)
         q = p.get_queue()
-        items = q.get_queue()
-        if not items:
-            await interaction.response.send_message("The queue is currently empty.", ephemeral=True)
+        current_track = q.now_playing()
+        upcoming = q.get_queue()
+        if not current_track and not upcoming:
+            await interaction.response.send_message("The music queue is currently empty. 🎵", ephemeral=True)
             return
-            
-        lines = []
-        for idx, t in enumerate(items[:10], start=1):
-            req = f"<@{t.requester}>" if t.requester else "Autoplay 📻"
-            lines.append(f"**{idx}.** {t.title} — {req}")
-        
-        queue_text = "\n".join(lines)
-        if len(items) > 10:
-            queue_text += f"\n*...and {len(items) - 10} more tracks.*"
-            
-        embed = discord.Embed(
-            title="Current Queue 📋",
-            description=queue_text,
-            color=discord.Color.blurple()
-        )
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Created by {owner.name} • Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        paginator = QueuePaginatorView(self.bot, self.guild_id, self.cog, current_track, upcoming)
+        await interaction.response.send_message(embed=paginator.make_embed(), view=paginator, ephemeral=True)
 
     @discord.ui.button(label="Autoplay", emoji="📻", style=discord.ButtonStyle.secondary)
     async def autoplay_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -666,19 +666,33 @@ class NowPlayingView(discord.ui.View):
         p.autoplay_enabled = not p.autoplay_enabled
         status = "enabled" if p.autoplay_enabled else "disabled"
         button.style = discord.ButtonStyle.success if p.autoplay_enabled else discord.ButtonStyle.secondary
-        await interaction.response.edit_message(view=self)
-        await interaction.followup.send(f"Autoplay has been **{status}** by {interaction.user.mention}. 📻", ephemeral=True)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(view=self)
+            await interaction.followup.send(f"Autoplay has been **{status}** by {interaction.user.mention}. 📻", ephemeral=True)
+        except Exception as e:
+            logger.warning("Autoplay button interaction error: %s", e)
 
     @discord.ui.button(label="Equalizer", emoji="🎛️", style=discord.ButtonStyle.danger)
     async def equalizer_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = EqualizerSelectView(self.bot, self.guild_id, self.cog)
-        await interaction.response.send_message("Select an Equalizer preset. New preset applies to the next songs played! 🎛️", view=view, ephemeral=True)
+        await interaction.response.send_message("Select an Equalizer preset below. The filter applies immediately! 🎛️", view=view, ephemeral=True)
 
 
 class EqualizerSelectView(discord.ui.View):
     def __init__(self, bot, guild_id, cog):
         super().__init__(timeout=60)
         self.add_item(EqualizerSelect(bot, guild_id, cog))
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        logger.exception("EqualizerSelectView interaction error: %s", error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Failed to set equalizer preset.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Failed to set equalizer preset.", ephemeral=True)
+        except Exception:
+            pass
 
 
 class EqualizerSelect(discord.ui.Select):
@@ -689,33 +703,215 @@ class EqualizerSelect(discord.ui.Select):
         
         options = [
             discord.SelectOption(label="Flat (Off)", description="No audio filters applied.", emoji="❌", value="flat"),
-            discord.SelectOption(label="Bass Boost", description="Boosts low-frequency bass sounds.", emoji="🔊", value="bassboost"),
-            discord.SelectOption(label="Vocal Boost", description="Highlights mid-range vocal frequencies.", emoji="🎤", value="vocalboost"),
-            discord.SelectOption(label="Lo-Fi", description="Applies a lowpass filter for a chill lo-fi vibe.", emoji="🌌", value="lofi")
+            discord.SelectOption(label="Bass Boost", description="Rich low-frequency bass response.", emoji="🔊", value="bassboost"),
+            discord.SelectOption(label="Ultra Bass", description="Heavy sub-bass boost.", emoji="⚡", value="ultrabass"),
+            discord.SelectOption(label="Lo-Fi / Chill", description="Warm retro vinyl filter.", emoji="🌌", value="lofi"),
+            discord.SelectOption(label="Nightcore", description="Faster tempo & higher pitch.", emoji="⚡", value="nightcore"),
+            discord.SelectOption(label="Vaporwave", description="Slower tempo & lower pitch.", emoji="🌊", value="vaporwave"),
+            discord.SelectOption(label="8D Audio", description="Dynamic moving surround pan.", emoji="🎧", value="8d"),
+            discord.SelectOption(label="Vocal Boost", description="Enhanced vocal clarity.", emoji="🎤", value="vocalboost"),
+            discord.SelectOption(label="Clear Treble", description="Crisp high-frequency tones.", emoji="✨", value="treble"),
+            discord.SelectOption(label="Rock / Heavy", description="V-shaped equalizer curve.", emoji="🎸", value="rock"),
+            discord.SelectOption(label="Pop / Bright", description="Bright pop sound balance.", emoji="🎙️", value="pop"),
+            discord.SelectOption(label="Radio / Oldschool", description="Classic telephone radio filter.", emoji="📻", value="radio"),
+            discord.SelectOption(label="Karaoke (Vocal Mute)", description="Cancels center vocals for singing along.", emoji="🎤", value="karaoke"),
         ]
         super().__init__(placeholder="Choose an Equalizer preset...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
-        p = self.cog._ensure_player(self.guild_id)
         choice = self.values[0]
+        p = self.cog._ensure_player(self.guild_id)
         
         presets = {
             "flat": "-vn",
-            "bassboost": "-vn -af equalizer=f=60:width_type=h:w=50:g=10",
-            "vocalboost": "-vn -af equalizer=f=1000:width_type=h:w=1000:g=5",
-            "lofi": "-vn -af lowpass=f=3000"
+            "bassboost": "-vn -af equalizer=f=60:width_type=h:width=50:g=8,equalizer=f=100:width_type=h:width=50:g=6",
+            "ultrabass": "-vn -af equalizer=f=40:width_type=h:width=40:g=12,equalizer=f=80:width_type=h:width=40:g=8",
+            "lofi": "-vn -af lowpass=f=3200,highpass=f=150,volume=1.1",
+            "nightcore": "-vn -af asetrate=44100*1.25,aresample=44100,atempo=1.0",
+            "vaporwave": "-vn -af asetrate=44100*0.85,aresample=44100,atempo=1.0",
+            "8d": "-vn -af aformat=channel_layouts=stereo,apulsator=hz=0.125:amount=0.9",
+            "vocalboost": "-vn -af equalizer=f=1000:width_type=h:width=500:g=6,equalizer=f=3000:width_type=h:width=1000:g=5",
+            "treble": "-vn -af equalizer=f=4000:width_type=h:width=1000:g=7,equalizer=f=8000:width_type=h:width=2000:g=6",
+            "rock": "-vn -af equalizer=f=80:g=6,equalizer=f=250:g=3,equalizer=f=4000:g=4,equalizer=f=10000:g=7",
+            "pop": "-vn -af equalizer=f=100:g=4,equalizer=f=1000:g=-1,equalizer=f=10000:g=5",
+            "radio": "-vn -af highpass=f=400,lowpass=f=3500",
+            "karaoke": "-vn -af pan=stereo|c0=c0-c1|c1=c1-c0",
         }
-        
+
         p.eq_preset_name = choice
         p.eq_option = presets.get(choice, "-vn")
         vc = self.cog.voice_clients.get(self.guild_id)
-        restarted = p.restart_current_track(vc)
-        message = f"Equalizer set to **{choice.capitalize()}**!"
-        if restarted:
-            message += " Applied to the current track now. 🎛️"
+        
+        preset_title = choice.replace("_", " ").title()
+        message = f"🎛️ Equalizer preset applied: **{preset_title}**"
+
+        # Edit message immediately to satisfy Discord's interaction ACK instantly
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(content=message, view=None)
+            else:
+                await interaction.followup.send(message, ephemeral=True)
+        except Exception:
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.defer(ephemeral=True)
+                await interaction.followup.send(message, ephemeral=True)
+            except Exception:
+                pass
+
+        # Restart track filter cleanly
+        try:
+            p.restart_current_track(vc)
+        except Exception as e:
+            logger.warning("Error restarting track with EQ preset: %s", e)
+
+
+
+class QueuePaginatorView(discord.ui.View):
+    def __init__(self, bot, guild_id: int, cog, current_track, upcoming: list, items_per_page: int = 10):
+        super().__init__(timeout=None)  # Persistent paginator
+        self.bot = bot
+        self.guild_id = guild_id
+        self.cog = cog
+        self.current_track = current_track
+        self.upcoming = upcoming
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        
+        total_items = len(upcoming)
+        self.total_pages = max(1, math.ceil(total_items / items_per_page))
+        self.update_buttons()
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        logger.exception("QueuePaginatorView interaction error: %s", error)
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ Failed to change queue page.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Failed to change queue page.", ephemeral=True)
+        except Exception:
+            pass
+
+    def update_buttons(self):
+        self.first_button.disabled = (self.current_page == 0)
+        self.prev_button.disabled = (self.current_page == 0)
+        self.page_indicator.label = f"Page {self.current_page + 1}/{self.total_pages}"
+        self.next_button.disabled = (self.current_page >= self.total_pages - 1)
+        self.last_button.disabled = (self.current_page >= self.total_pages - 1)
+
+    def format_time(self, seconds: int) -> str:
+        if seconds is None or seconds < 0:
+            return "0:00"
+        mins, secs = divmod(int(seconds), 60)
+        hours, mins = divmod(mins, 60)
+        if hours > 0:
+            return f"{hours:02d}:{mins:02d}:{secs:02d}"
+        return f"{mins:02d}:{secs:02d}"
+
+    def make_embed(self) -> discord.Embed:
+        from utils.embed_utils import HELIX_COLOR, set_owner_footer
+        guild = self.bot.get_guild(self.guild_id)
+        guild_name = guild.name if guild else "Server"
+
+        embed = discord.Embed(
+            title="Music Queue",
+            color=HELIX_COLOR,
+        )
+
+        # 1. Now Playing track
+        if self.current_track:
+            req_mention = f"<@{self.current_track.requester}>" if self.current_track.requester else "*Autoplay*"
+            duration_str = self.format_time(self.current_track.duration)
+            embed.description = (
+                f"**Now Playing:**\n"
+                f"> 🎵 {format_track_link(self.current_track.title, self.current_track.url)} (`{duration_str}`) • {req_mention}\n\n"
+                f"**Up Next (Page {self.current_page + 1}/{self.total_pages}):**\n"
+            )
         else:
-            message += " It will apply when playback starts. 🎛️"
-        await interaction.response.send_message(message, ephemeral=True)
+            embed.description = f"**Now Playing:**\n*Nothing is currently playing.*\n\n**Up Next (Page {self.current_page + 1}/{self.total_pages}):**\n"
+
+        # 2. Upcoming tracks for current page
+        start_idx = self.current_page * self.items_per_page
+        end_idx = start_idx + self.items_per_page
+        page_tracks = self.upcoming[start_idx:end_idx]
+
+        if page_tracks:
+            upcoming_lines = []
+            for i, track in enumerate(page_tracks, start=start_idx + 1):
+                req_mention = f"<@{track.requester}>" if track.requester else "*Autoplay*"
+                duration_str = self.format_time(track.duration)
+                upcoming_lines.append(
+                    f"`{i:02d}.` {format_track_link(track.title, track.url)} (`{duration_str}`) • {req_mention}"
+                )
+            embed.description += "\n".join(upcoming_lines)
+        else:
+            embed.description += "*No upcoming tracks in queue.*"
+
+        # 3. Status/Metadata footer
+        p = self.cog._ensure_player(self.guild_id)
+        q = p.get_queue()
+
+        loop_status = "Off"
+        if q.loop_mode == "song":
+            loop_status = "Song"
+        elif q.loop_mode == "queue":
+            loop_status = "Queue"
+
+        autoplay_status = "Active" if getattr(p, "autoplay_enabled", False) else "Disabled"
+
+        total_duration = sum((t.duration or 0) for t in self.upcoming)
+        if self.current_track:
+            total_duration += (self.current_track.duration or 0)
+        total_duration_str = self.format_time(total_duration)
+
+        embed.description += (
+            f"\n\n> 📊 **Queue:** `{len(self.upcoming) + (1 if self.current_track else 0)} tracks` • "
+            f"⏱️ `{total_duration_str}` • "
+            f"🔁 **Loop:** `{loop_status}` • "
+            f"📻 **Autoplay:** `{autoplay_status}`"
+        )
+
+        set_owner_footer(embed, self.bot, extra_text=f"Page {self.current_page + 1} of {self.total_pages}")
+        return embed
+
+    @discord.ui.button(label="First", emoji="⏮️", style=discord.ButtonStyle.secondary)
+    async def first_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = 0
+        self.update_buttons()
+        if not interaction.response.is_done():
+            await interaction.response.edit_message(embed=self.make_embed(), view=self)
+
+    @discord.ui.button(label="Previous", emoji="◀️", style=discord.ButtonStyle.primary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_buttons()
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=self.make_embed(), view=self)
+        else:
+            await interaction.response.send_message("You are already on the first page.", ephemeral=True)
+
+    @discord.ui.button(label="Page 1/1", style=discord.ButtonStyle.secondary, disabled=True)
+    async def page_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(label="Next", emoji="▶️", style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            self.update_buttons()
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=self.make_embed(), view=self)
+        else:
+            await interaction.response.send_message("You are already on the last page.", ephemeral=True)
+
+    @discord.ui.button(label="Last", emoji="⏭️", style=discord.ButtonStyle.secondary)
+    async def last_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = self.total_pages - 1
+        self.update_buttons()
+        if not interaction.response.is_done():
+            await interaction.response.edit_message(embed=self.make_embed(), view=self)
+
 
 
 class LyricsView(discord.ui.View):
@@ -732,12 +928,11 @@ class LyricsView(discord.ui.View):
             description=self.pages[self.current_page],
             color=discord.Color.blurple()
         )
-        owner = self.bot.owner_user if hasattr(self.bot, "owner_user") else None
-        if owner:
-            embed.set_footer(text=f"Page {self.current_page + 1} of {len(self.pages)} • Created by {owner.name}")
-        else:
-            embed.set_footer(text=f"Page {self.current_page + 1} of {len(self.pages)}")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot, extra_text=f"Page {self.current_page + 1} of {len(self.pages)}")
         return embed
+
+
 
     @discord.ui.button(label="Back", emoji="◀️", style=discord.ButtonStyle.primary)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):

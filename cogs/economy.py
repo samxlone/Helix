@@ -127,30 +127,38 @@ class EconomyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.hybrid_command(name="balance", aliases=["bal"])
+    @commands.hybrid_command(name="balance", aliases=["bal", "profile", "networth"])
     @commands.guild_only()
     async def balance(self, ctx: commands.Context, member: Optional[discord.Member] = None):
-        """Check your or another member's economy balance"""
+        """Check your or another member's VIP banking profile & balance card."""
         user = member or ctx.author
         w, b = await get_balance(user.id)
-        total = w + b
 
-        color = user.color if hasattr(user, "color") and user.color and user.color.value != 0 else discord.Color.blurple()
-        embed = discord.Embed(
-            title=f"💳 Balance — {user.display_name}",
-            color=color
+        from utils.leveling import get_level_info
+        level, xp = await get_level_info(user.id)
+
+        from services.image_card import generate_profile_card
+
+        avatar_url = user.display_avatar.url if hasattr(user, "display_avatar") else None
+        username_str = getattr(user, "name", user.display_name)
+        buf = generate_profile_card(
+            display_name=user.display_name,
+            username=username_str,
+            avatar_url=avatar_url,
+            wallet=w,
+            bank=b,
+            level=level,
+            xp=xp,
         )
-        avatar_url = user.display_avatar.url if hasattr(user, "display_avatar") else getattr(getattr(user, "avatar", None), "url", None)
-        if avatar_url:
-            embed.set_thumbnail(url=avatar_url)
 
-        embed.add_field(name="💵 Wallet", value=f"**${w:,}** coins", inline=True)
-        embed.add_field(name="🏦 Bank", value=f"**${b:,}** coins", inline=True)
-        embed.add_field(name="💰 Net Worth", value=f"**${total:,}** coins", inline=True)
-        embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+        from utils.embed_utils import HELIX_COLOR, set_owner_footer
+        file = discord.File(fp=buf, filename="profile_card.png")
 
-        await ctx.send(embed=embed)
+        embed = discord.Embed(color=HELIX_COLOR)
+        embed.set_image(url="attachment://profile_card.png")
+        set_owner_footer(embed, self.bot, extra_text=f"Requested by {ctx.author.display_name}")
 
+        await ctx.send(embed=embed, file=file)
 
     @commands.hybrid_command(name="daily")
     @commands.guild_only()
@@ -158,22 +166,22 @@ class EconomyCog(commands.Cog):
         """Claim your daily reward"""
         claimed, new_wallet = await claim_daily(ctx.author.id)
         if not claimed:
-            await ctx.send("You have already claimed your daily reward. Try later.", ephemeral=True)
+            await ctx.send("⏳ You have already claimed your daily reward today. Come back tomorrow!", ephemeral=True)
             return
-        await ctx.send(f"You claimed your daily reward! Wallet now: {new_wallet}")
+        await ctx.send(f"💎 **Daily Reward Claimed!** Added funds to your wallet. Balance: **${new_wallet:,}**")
 
     @commands.hybrid_command(name="pay")
     @commands.guild_only()
     async def pay(self, ctx: commands.Context, target: discord.Member, amount: int):
         """Pay another member from your wallet"""
         if amount <= 0:
-            await ctx.send("Amount must be positive.", ephemeral=True)
+            await ctx.send("❌ Amount must be greater than zero.", ephemeral=True)
             return
         ok = await transfer(ctx.author.id, target.id, amount)
         if not ok:
-            await ctx.send("Transfer failed (insufficient funds?).", ephemeral=True)
+            await ctx.send("❌ Transfer failed. Check your wallet balance.", ephemeral=True)
             return
-        await ctx.send(f"Transferred {amount} to {target.mention}.")
+        await ctx.send(f"💸 **Payment Sent:** Transferred **${amount:,}** to {target.mention}.")
 
     @commands.hybrid_command(name="work")
     @commands.guild_only()
@@ -181,9 +189,9 @@ class EconomyCog(commands.Cog):
         """Perform work to earn money"""
         ok, new_wallet = await do_work(ctx.author.id)
         if not ok:
-            await ctx.send("You are on cooldown for work. Try later.", ephemeral=True)
+            await ctx.send("⏳ You are currently on shift cooldown. Try again in a few minutes.", ephemeral=True)
             return
-        await ctx.send(f"You worked and earned money! Wallet now: {new_wallet}")
+        await ctx.send(f"💼 **Shift Finished!** You completed your work. Wallet Balance: **${new_wallet:,}**")
 
     @commands.hybrid_command(name="deposit", aliases=["dep", "deposite"])
     @commands.guild_only()
@@ -206,9 +214,9 @@ class EconomyCog(commands.Cog):
 
         ok = await deposit_to_bank(ctx.author.id, dep_amount)
         if not ok:
-            await ctx.send("❌ Deposit failed (insufficient wallet funds?).", ephemeral=True)
+            await ctx.send("❌ Deposit failed (insufficient wallet funds).", ephemeral=True)
             return
-        await ctx.send(f"✅ Deposited {dep_amount} to your bank.")
+        await ctx.send(f"🏦 **Bank Vault Updated:** Deposited **${dep_amount:,}** into your secure account.")
 
     @commands.hybrid_command(name="withdraw", aliases=["with"])
     @commands.guild_only()
@@ -231,9 +239,9 @@ class EconomyCog(commands.Cog):
 
         ok = await withdraw_from_bank(ctx.author.id, with_amount)
         if not ok:
-            await ctx.send("❌ Withdraw failed (insufficient bank funds?).", ephemeral=True)
+            await ctx.send("❌ Withdrawal failed (insufficient bank balance).", ephemeral=True)
             return
-        await ctx.send(f"✅ Withdrew {with_amount} to your wallet.")
+        await ctx.send(f"🪙 **Cash Withdrawn:** Withdrew **${with_amount:,}** from your bank vault.")
 
     @commands.hybrid_command(name="inventory", aliases=["inv"])
     @commands.guild_only()

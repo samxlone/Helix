@@ -11,9 +11,29 @@ from utils import errors as error_utils
 
 load_dotenv()
 
+import socket
+import sys
+
 logger = setup_logging(os.getenv("LOG_LEVEL", "INFO"))
 
+_instance_lock_socket = None
+
+def ensure_single_instance(port: int = 47892):
+    global _instance_lock_socket
+    try:
+        _instance_lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _instance_lock_socket.bind(("127.0.0.1", port))
+    except Exception:
+        logger.error("❌ Another instance of Helix is already running! Exiting to prevent duplicate responses.")
+        print("\n❌ Another instance of Helix is already running! Please close the previous process before launching a new one.\n")
+        sys.exit(1)
+
+if not os.getenv("PYTEST_CURRENT_TEST") and "pytest" not in sys.modules:
+    ensure_single_instance()
+
+
 PREFIX = os.getenv("PREFIX", "!")
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
@@ -34,8 +54,14 @@ async def get_prefix(bot, message: discord.Message):
         return commands.when_mentioned_or(default_prefix)(bot, message)
 
 
-bot = commands.Bot(command_prefix=get_prefix, intents=intents, help_command=None)
+bot = commands.Bot(
+    command_prefix=get_prefix,
+    intents=intents,
+    help_command=None,
+    case_insensitive=True
+)
 bot.start_time = discord.utils.utcnow()
+
 
 
 import inspect
@@ -213,6 +239,11 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
+    if message.guild:
+        from services.analytics import record_message
+        asyncio.create_task(record_message(message.guild.id, message.author.id, message.channel.id))
+
+
     # Get active prefix dynamically for this guild/message
     prefix = PREFIX
     if message.guild:
@@ -258,7 +289,8 @@ async def on_message(message: discord.Message):
                             text_cmds.add(alias.lower())
                     
                     if first_word in text_cmds:
-                        message.content = f"{prefix}{content}"
+                        rest_of_message = content[len(words[0]):]
+                        message.content = f"{prefix}{first_word}{rest_of_message}"
                         logger.info("Prefix-less command auto-prefix: %s -> %s for user %s", content, message.content, message.author.id)
                     else:
                         # Try executing as slash command directly
@@ -267,6 +299,15 @@ async def on_message(message: discord.Message):
                             return
         except Exception:
             logger.exception("Error in prefix-less command bypass")
+
+    # Double Failsafe: Normalize command name right after prefix to lowercase
+    if message.content.startswith(prefix):
+        raw_cmd = message.content[len(prefix):]
+        parts = raw_cmd.split(maxsplit=1)
+        if parts:
+            cmd_name = parts[0].lower()
+            rest = f" {parts[1]}" if len(parts) > 1 else ""
+            message.content = f"{prefix}{cmd_name}{rest}"
 
     # If the bot is mentioned directly, reply with info or search for a GIF if query text is present
     # If the bot is mentioned directly with no other text (and not replying to a message), reply with prefix info
@@ -278,6 +319,7 @@ async def on_message(message: discord.Message):
 
 
     await bot.process_commands(message)
+
 
 
 @bot.event
@@ -371,7 +413,14 @@ async def on_ready():
 
 
 
+@bot.event
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+    from services.analytics import handle_voice_update
+    handle_voice_update(member, before, after)
+
+
 async def main():
+
     # Initialize DB and error handlers
     try:
         await db_utils.init_db()

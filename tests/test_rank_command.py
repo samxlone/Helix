@@ -1,6 +1,7 @@
 import pytest
 import importlib
 from types import SimpleNamespace as SN
+import discord
 
 class FakeUser:
     def __init__(self, id=1, display_name="TestUser"):
@@ -14,9 +15,11 @@ class FakeCtx:
         self.guild = SN(id=1)
         self.sent = []
 
-    async def send(self, content=None, embed=None, **kwargs):
+    async def send(self, content=None, embed=None, file=None, **kwargs):
         if embed:
             self.sent.append(embed)
+        if file:
+            self.sent.append(file)
 
 @pytest.mark.asyncio
 async def test_rank_command_flow(tmp_path, monkeypatch):
@@ -53,8 +56,7 @@ async def test_rank_command_flow(tmp_path, monkeypatch):
     await cog.rank.callback(cog, ctx, member=user101)
 
     assert len(ctx.sent) == 1
-    embed = ctx.sent[0]
-    assert "Level & Rank" in embed.title
-    assert "Level:" in embed.description
-    assert "#1" in embed.description
-    assert embed.thumbnail.url == "https://example.com/pfp.png"
+    sent_file = ctx.sent[0]
+    assert isinstance(sent_file, discord.File)
+    assert sent_file.filename == "rank_card.png"
+

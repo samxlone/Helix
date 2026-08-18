@@ -115,39 +115,30 @@ class LevelingCog(commands.Cog):
     @commands.hybrid_command(name="rank", aliases=["level", "lvl"])
     @commands.guild_only()
     async def rank(self, ctx: commands.Context, member: Optional[discord.Member] = None):
-        """Display the level rank card for yourself or another member."""
+        """Display the luxury level rank card for yourself or another member."""
         target = member or ctx.author
         level, current_xp = await get_level_info(target.id)
         needed_xp = xp_needed_for_next(level)
         rank_pos = await get_user_rank(target.id)
 
-        pct = min(1.0, max(0.0, current_xp / needed_xp)) if needed_xp > 0 else 0.0
-        bar_length = 10
-        filled = int(round(pct * bar_length))
-        bar = "▰" * filled + "▱" * (bar_length - filled)
-        pct_formatted = f"{int(pct * 100)}%"
+        from services.image_card import generate_rank_card
 
-        def fmt(num: int) -> str:
-            if num >= 1_000_000:
-                return f"{num / 1_000_000:.1f}M"
-            elif num >= 1_000:
-                return f"{num / 1_000:.1f}K"
-            return f"{num:,}"
-
-        embed = discord.Embed(
-            title=f"Level & Rank — {target.display_name}",
-            color=discord.Color.from_rgb(0, 180, 216)
+        avatar_url = target.display_avatar.url if hasattr(target, "display_avatar") else None
+        username_str = getattr(target, "name", target.display_name)
+        buf = generate_rank_card(
+            display_name=target.display_name,
+            username=username_str,
+            avatar_url=avatar_url,
+            level=level,
+            current_xp=current_xp,
+            next_xp=needed_xp,
+            rank_num=rank_pos,
         )
-        embed.set_thumbnail(url=target.display_avatar.url)
 
-        stats_str = (
-            f"**Level:** `{level}`  •  **XP:** `{fmt(current_xp)} / {fmt(needed_xp)}`  •  **Rank:** `#{rank_pos:,}`\n\n"
-            f"**Progress:** [{bar}] `{pct_formatted}`"
-        )
-        embed.description = stats_str
-        embed.set_footer(text=f"Requested by {ctx.author.display_name}")
+        file = discord.File(fp=buf, filename="rank_card.png")
+        await ctx.send(file=file)
 
-        await ctx.send(embed=embed)
+
 
     @commands.Cog.listener("on_message")
 

@@ -77,7 +77,14 @@ async def test_help_command_interactive_panel(monkeypatch):
     view = next(s for s in ctx.sent if type(s).__name__ == "HelpView")
     select = view.children[0]
     option_labels = [opt.label for opt in select.options]
+    assert "Ticket System" in option_labels
+    assert "Giveaway System" in option_labels
+    assert "Voice Mass Tools" in option_labels
+    assert "Interactive Games & Casino" in option_labels
     assert "Bot Owner & Branding" not in option_labels
+
+
+
 
     # 2. Owner help panel (includes Owner Commands)
     monkeypatch.setenv("OWNER_ID", "999")

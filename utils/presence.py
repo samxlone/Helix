@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import discord
 from utils.config_service import get_guild_config
 
@@ -30,8 +31,14 @@ async def set_presence(bot, cfg):
     elif activity_type == "watching":
         activity = discord.Activity(type=discord.ActivityType.watching, name=name)
 
-    await bot.change_presence(status=status, activity=activity)
-    logger.info("Successfully applied presence: status=%s, activity=%s (%s)", status_str, activity_type, name)
+    try:
+        if not bot.is_ready():
+            await bot.wait_until_ready()
+        if getattr(bot, "ws", None) is not None:
+            await bot.change_presence(status=status, activity=activity)
+            logger.info("Successfully applied presence: status=%s, activity=%s (%s)", status_str, activity_type, name)
+    except Exception as e:
+        logger.warning("Could not set presence (%s): %s", status_str, e)
 
 
 async def load_and_set_presence(bot):

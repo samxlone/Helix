@@ -1,10 +1,10 @@
 import os
 import logging
+import discord
 from discord.ext import commands
 from discord import app_commands
 
 logger = logging.getLogger(__name__)
-
 
 
 async def setup_error_handlers(bot: commands.Bot):
@@ -32,7 +32,7 @@ async def setup_error_handlers(bot: commands.Bot):
             logger.warning("Could not add global DM restriction check: %s", e)
 
     # App command global interaction check to disable DM commands for non-owner users
-    async def global_app_cmd_dm_check(interaction) -> bool:
+    async def global_app_cmd_dm_check(interaction: discord.Interaction) -> bool:
         if interaction.guild is None:
             is_owner = False
             try:
@@ -50,9 +50,9 @@ async def setup_error_handlers(bot: commands.Bot):
                 return False
         return True
 
-    if hasattr(bot, "tree") and hasattr(bot.tree, "interaction_check"):
+    if hasattr(bot, "tree"):
         try:
-            bot.tree.interaction_check(global_app_cmd_dm_check)
+            bot.tree.interaction_check = global_app_cmd_dm_check
         except Exception as e:
             logger.warning("Could not add global app command DM restriction check: %s", e)
 
@@ -126,8 +126,6 @@ async def setup_error_handlers(bot: commands.Bot):
             await ctx.send(f"❌ Command Error: {err_msg}", ephemeral=True)
         except Exception:
             pass
-
-
 
     # App command (slash) error handler
     @bot.tree.error

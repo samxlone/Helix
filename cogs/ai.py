@@ -47,7 +47,20 @@ class AICog(commands.Cog):
         if message.author.bot:
             return
 
+        # Ignore bot commands
+        if message.content.strip().startswith("!"):
+            return
+        if hasattr(self.bot, "get_context"):
+            try:
+                ctx = await self.bot.get_context(message)
+                if ctx and ctx.valid:
+                    return
+            except Exception:
+                pass
+
+
         is_owner = await self._is_owner(message.author)
+
 
         # Handle DMs for Bot Owner
         if not message.guild:
@@ -213,13 +226,14 @@ class AICog(commands.Cog):
             await ctx.send("❌ Failed to generate image. Please ensure prompt is valid.", ephemeral=True)
             return
 
+        from utils.embed_utils import HELIX_COLOR, set_owner_footer
         file = discord.File(fp=io.BytesIO(img_bytes), filename="imagine.png")
         embed = discord.Embed(
-            title=f"🎨 AI Image: {prompt[:100]}",
-            color=discord.Color.from_rgb(0, 180, 216)
+            title=f"🎨 Neural Synthesis — {prompt[:80]}",
+            color=HELIX_COLOR
         )
         embed.set_image(url="attachment://imagine.png")
-        embed.set_footer(text=f"Requested by {ctx.author.display_name} • Powered by Gemini Imagen")
+        set_owner_footer(embed, self.bot, extra_text=f"Prompt by {ctx.author.display_name}")
         await ctx.send(embed=embed, file=file)
 
     @commands.hybrid_command(name="ailimit", aliases=["aiusage", "ailimits"])
@@ -229,17 +243,20 @@ class AICog(commands.Cog):
         is_owner = await self._is_owner(ctx.author)
         text_cnt, img_cnt = await get_user_daily_usage(ctx.author.id)
 
+        from utils.embed_utils import HELIX_COLOR, set_owner_footer
         embed = discord.Embed(
-            title=f"🤖 AI Daily Usage & Limits for {ctx.author.display_name}",
-            color=discord.Color.blue()
+            title=f"🤖 AI Telemetry & Usage — {ctx.author.display_name}",
+            color=HELIX_COLOR
         )
         if is_owner:
-            embed.description = "👑 **Bot Owner Status**: You have **unlimited** AI questions and image generations!"
+            embed.description = "👑 **Owner Privilege:** You have unlimited neural queries and visual generations."
         else:
-            embed.add_field(name="💬 Text Questions", value=f"`{text_cnt} / 10` questions used today", inline=False)
-            embed.add_field(name="🎨 Image Generations", value=f"`{img_cnt} / 2` images used today", inline=False)
-            embed.set_footer(text="Limits reset daily at 00:00 UTC")
-
+            embed.description = (
+                f"> 💬 **Text Queries:** `{text_cnt} / 10` daily used\n"
+                f"> 🎨 **Image Syntheses:** `{img_cnt} / 2` daily used\n"
+                f"> ⏳ **Quota Reset:** `Daily at 00:00 UTC`"
+            )
+        set_owner_footer(embed, self.bot, extra_text="Helix Neural Core")
         await ctx.send(embed=embed)
 
 

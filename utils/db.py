@@ -136,7 +136,40 @@ async def init_db():
             expires_at TEXT NOT NULL
         )
         """)
+        # Statbot-style Analytics
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS message_analytics (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            message_count INTEGER DEFAULT 1,
+            log_date TEXT NOT NULL,
+            PRIMARY KEY(guild_id, user_id, channel_id, log_date)
+        )
+        """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS voice_analytics (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            voice_seconds INTEGER DEFAULT 0,
+            log_date TEXT NOT NULL,
+            PRIMARY KEY(guild_id, user_id, channel_id, log_date)
+        )
+        """)
+        # Co-Owner & Trusted Users
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS trusted_users (
+            guild_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            granted_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(guild_id, user_id)
+        )
+        """)
         # AFK table (supports global and server-specific AFK)
+
+
         await conn.execute("""
         CREATE TABLE IF NOT EXISTS afk (
             user_id INTEGER NOT NULL,
@@ -196,7 +229,187 @@ async def init_db():
             UNIQUE(user_id, vanity)
         )
         """)
+        # Giveaways tables
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS giveaways (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL UNIQUE,
+            host_id INTEGER NOT NULL,
+            prize TEXT NOT NULL,
+            winners_count INTEGER NOT NULL DEFAULT 1,
+            end_time TEXT NOT NULL,
+            ended INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS giveaway_entries (
+            giveaway_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            PRIMARY KEY(giveaway_id, user_id)
+        )
+        """)
+        # Ticket System tables
+
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS ticket_panels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            category_id INTEGER,
+            staff_role_id INTEGER,
+            log_channel_id INTEGER,
+            ticket_counter INTEGER DEFAULT 0,
+            options_json TEXT,
+            embed_color TEXT,
+            created_at TEXT NOT NULL
+        )
+        """)
+        try:
+            await conn.execute("ALTER TABLE ticket_panels ADD COLUMN options_json TEXT")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE ticket_panels ADD COLUMN embed_color TEXT")
+        except Exception:
+            pass
+        # Guild Ticket Configuration Table (Per-Guild Sequential Numbering & Routing)
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS guild_ticket_config (
+            guild_id INTEGER PRIMARY KEY,
+            open_category_id INTEGER,
+            closed_category_id INTEGER,
+            staff_role_id INTEGER,
+            transcript_channel_id INTEGER,
+            log_channel_id INTEGER,
+            next_ticket_number INTEGER DEFAULT 1,
+            created_at TEXT
+        )
+        """)
+        try:
+            await conn.execute("ALTER TABLE guild_ticket_config ADD COLUMN open_category_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE guild_ticket_config ADD COLUMN closed_category_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE guild_ticket_config ADD COLUMN staff_role_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE guild_ticket_config ADD COLUMN transcript_channel_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE guild_ticket_config ADD COLUMN log_channel_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE guild_ticket_config ADD COLUMN next_ticket_number INTEGER DEFAULT 1")
+        except Exception:
+            pass
+
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL UNIQUE,
+            user_id INTEGER NOT NULL,
+            panel_id INTEGER,
+            category TEXT,
+            ticket_type TEXT,
+            ticket_number INTEGER NOT NULL DEFAULT 0,
+            status TEXT DEFAULT 'open',
+            claimed_by INTEGER,
+            close_reason TEXT,
+            created_at TEXT NOT NULL,
+            closed_at TEXT
+        )
+        """)
+        try:
+            await conn.execute("ALTER TABLE tickets ADD COLUMN panel_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE tickets ADD COLUMN category TEXT")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE tickets ADD COLUMN ticket_type TEXT")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE tickets ADD COLUMN ticket_number INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE tickets ADD COLUMN claimed_by INTEGER")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE tickets ADD COLUMN close_reason TEXT")
+        except Exception:
+            pass
+
+        # Auto Roles Table
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS autoroles (
+            guild_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            is_bot INTEGER DEFAULT 0,
+            PRIMARY KEY(guild_id, role_id)
+        )
+        """)
+
+        # Welcome & Goodbye Configuration Table
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS welcome_config (
+            guild_id INTEGER PRIMARY KEY,
+            welcome_channel_id INTEGER,
+            goodbye_channel_id INTEGER,
+            welcome_msg TEXT,
+            goodbye_msg TEXT,
+            welcome_type TEXT DEFAULT 'card',
+            dm_enabled INTEGER DEFAULT 0,
+            is_enabled INTEGER DEFAULT 1
+        )
+        """)
+
+        # Starboard Configuration & Tracking Tables
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS starboard_config (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER,
+            threshold INTEGER DEFAULT 3,
+            emoji TEXT DEFAULT '⭐',
+            is_enabled INTEGER DEFAULT 1
+        )
+        """)
+
+        await conn.execute("""
+        CREATE TABLE IF NOT EXISTS starboard_messages (
+            guild_id INTEGER NOT NULL,
+            original_message_id INTEGER NOT NULL,
+            starboard_message_id INTEGER NOT NULL,
+            star_count INTEGER DEFAULT 0,
+            PRIMARY KEY(guild_id, original_message_id)
+        )
+        """)
+
         await conn.commit()
+
+
+
+
+
+
 
 
 

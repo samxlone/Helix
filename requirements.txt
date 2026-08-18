@@ -1,14 +1,23 @@
-discord.py>=2.2.0
-python-dotenv>=1.0.0
-aiosqlite>=0.17.0
-PyYAML>=6.0
-pydantic>=1.10.0
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-yt-dlp>=2024.11.0
+# Discord Bot Engine & Voice Support (Python 3.14+ Compatible)
+discord.py[voice]>=2.4.0
 PyNaCl>=1.5.0
+audioop-lts>=0.2.0
 davey>=0.1.0
 opuslib>=3.0.0
-openai>=1.0.0
-google-generativeai>=0.5.0
 
+# Network, Async HTTP & API Clients
+aiohttp>=3.9.0
+
+# Music Streaming & Dynamic Media Rendering
+yt-dlp>=2025.1.1
+pillow>=10.0.0
+
+# Database & Environment Configuration
+aiosqlite>=0.19.0
+python-dotenv>=1.0.0
+PyYAML>=6.0.0
+pydantic>=2.0.0
+
+# Automated Testing Suite
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

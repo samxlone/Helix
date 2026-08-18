@@ -61,27 +61,53 @@ class Player:
         from .autoplay import Autoplay
         self.autoplay = Autoplay()
         self.volume = 1.0
+        self.is_247 = False
+        self.eq_preset_name = "flat"
+        self.eq_option = "-vn"
 
-    async def _ensure_valid_stream_url(self, track):
+    def reset_eq(self):
+        """Reset Equalizer preset back to default (flat/off)."""
+        self.eq_preset_name = "flat"
+        self.eq_option = "-vn"
+
+    def set_volume(self, volume: float, voice_client: Optional[object] = None):
+        """Set playback volume (e.g. 0.5 for 50%, 1.0 for 100%) and update live voice source."""
+        self.volume = max(0.0, float(volume))
+        vc = voice_client or getattr(self, "_current_vc", None)
+        if vc and hasattr(vc, "source") and vc.source:
+            src = vc.source
+            if hasattr(src, "volume"):
+                src.volume = self.volume
+            elif hasattr(src, "original") and hasattr(src.original, "volume"):
+                src.original.volume = self.volume
+
+
+
+    async def _ensure_valid_stream_url(self, track, force_refresh: bool = False):
         """Ensure track has a valid direct http/https audio stream URL prior to playback."""
         if not track:
             return
         url = getattr(track, "stream_url", None) or getattr(track, "url", "")
-        if not url or not (url.startswith("http://") or url.startswith("https://")):
+        if force_refresh or not url or not (url.startswith("http://") or url.startswith("https://")):
             try:
-                from .providers import YTDLPProvider
-                yt = YTDLPProvider()
+                from .providers import YouTubeProvider
+                yt = YouTubeProvider()
                 query = getattr(track, "url", None) or getattr(track, "title", None) or "song"
-                search_term = query if query.startswith("http") else f"ytsearch:{query}"
+                search_term = query if (query.startswith("http://") or query.startswith("https://")) else f"ytsearch1:{query}"
+
                 meta = await yt.fetch_metadata(search_term)
-                if meta and meta.get("stream_url"):
+                if meta and meta.get("stream_url") and (meta["stream_url"].startswith("http://") or meta["stream_url"].startswith("https://")):
                     track.stream_url = meta["stream_url"]
                     if meta.get("http_headers"):
                         track.http_headers = meta["http_headers"]
             except Exception as err:
                 logger.warning("On-demand stream resolution failed for %s: %s", getattr(track, "title", "track"), err)
-                if not getattr(track, "stream_url", None):
-                    track.stream_url = getattr(track, "url", None) or getattr(track, "title", "ytsearch:song")
+
+        curr_stream = getattr(track, "stream_url", None)
+        if curr_stream and not (curr_stream.startswith("http://") or curr_stream.startswith("https://")):
+            track.stream_url = None
+
+
 
 
     async def _play_loop(self):
@@ -170,7 +196,9 @@ class Player:
             while True:
                 if not voice_client or not voice_client.is_connected():
                     logger.info("Voice client disconnected or uninitialized. Exiting voice loop.")
+                    self.reset_eq()
                     break
+
                 track = self.queue.now_playing() or self.queue.dequeue()
 
                 if not track:
@@ -199,48 +227,51 @@ class Player:
                     if ch_id and bot_instance:
                         asyncio.create_task(update_vc_status(bot_instance, ch_id, f"🎵 Playing: {track.title}"))
 
-                    # Post "Started Playing" embed if not seeking
+                    # Post clean notification when advancing to next track if not seeking and not restarting due to EQ filter change
                     is_seeking = getattr(self, "seeking", False)
-                    if not is_seeking:
+                    is_filter_change = getattr(self, "_restarting_current_track", False)
+                    suppress_first = getattr(self, "suppress_first_track_msg", False)
+
+                    if is_filter_change:
+                        self._restarting_current_track = False
+                    elif is_seeking:
+                        self.seeking = False
+                    elif suppress_first:
+                        self.suppress_first_track_msg = False
+                    else:
                         text_ch = getattr(self, "text_channel", None)
                         if text_ch:
                             try:
-                                import discord
-                                title_str = (track.title or "Unknown Track").strip()
-                                url_str = (track.url or "").strip()
-                                if title_str.startswith("http://") or title_str.startswith("https://") or title_str == url_str:
-                                    desc_content = f"**{title_str}**"
+                                from .ui import format_time
+                                clean_title = getattr(track, "title", "Unknown Track").replace('\\', '')
+                                dur = getattr(track, "duration", None)
+                                dur_str = f"( {format_time(dur)} ) " if dur else ""
+                                
+                                is_auto = getattr(track, "requester", None) is None
+                                if is_auto:
+                                    msg_text = f"📻 **{clean_title}** started playing {dur_str}[Autoplay]"
                                 else:
-                                    safe_title = title_str.replace("[", "\\[").replace("]", "\\]")
-                                    desc_content = f"**[{safe_title}]({url_str})**"
-
-                                embed = discord.Embed(
-                                    title="Started Playing 🎶",
-                                    description=desc_content,
-                                    color=discord.Color.blurple()
-                                )
-
-                                if track.author:
-                                    embed.add_field(name="Uploader/Artist", value=track.author, inline=True)
-                                if track.duration:
-                                    mins, secs = divmod(track.duration, 60)
-                                    hours, mins = divmod(mins, 60)
-                                    duration_str = f"{hours:02d}:{mins:02d}:{secs:02d}" if hours else f"{mins:02d}:{secs:02d}"
-                                    embed.add_field(name="Duration", value=duration_str, inline=True)
-                                requester_str = f"<@{track.requester}>" if track.requester else "Autoplay 📻"
-                                embed.add_field(name="Requested By", value=requester_str, inline=True)
-                                if track.thumbnail:
-                                    embed.set_thumbnail(url=track.thumbnail)
-                                owner = getattr(bot_instance, "owner_user", None) if bot_instance else None
-                                if owner:
-                                    embed.set_footer(text=f"Created by {owner.name} • Owned by {owner.name}", icon_url=owner.avatar.url if owner.avatar else None)
-                                else:
-                                    embed.set_footer(text="Owned by Bot Owner")
-                                from cogs.music import NowPlayingView
-                                view = NowPlayingView(bot_instance, voice_client.guild.id, bot_instance.get_cog("MusicCog"))
-                                asyncio.create_task(text_ch.send(embed=embed, view=view))
+                                    msg_text = f"🎶 **{clean_title}** started playing {dur_str}"
+                                
+                                async def _send_np(msg_content=msg_text):
+                                    try:
+                                        await text_ch.send(msg_content)
+                                    except Exception as err:
+                                        logger.warning("Could not send track advance notice: %s", err)
+                                asyncio.create_task(_send_np())
                             except Exception as e:
-                                logger.exception("Failed to send Started Playing embed: %s", e)
+                                logger.exception("Failed to send track notification: %s", e)
+
+                    # Update active NP embed with new EQ preset badge if available
+                    if (is_filter_change or is_seeking) and hasattr(self, "current_np_message") and self.current_np_message:
+                        try:
+                            from .ui import build_started_playing_embed
+                            guild_name = voice_client.guild.name if (voice_client and voice_client.guild) else "Server"
+                            cur_sec = getattr(self, "seek_time", 0)
+                            updated_embed = build_started_playing_embed(track, guild_name, bot_instance, self, current_sec=cur_sec)
+                            asyncio.create_task(self.current_np_message.edit(embed=updated_embed))
+                        except Exception:
+                            pass
 
                     seek_time = getattr(self, "seek_time", 0)
                     self.seek_time = 0
@@ -250,47 +281,116 @@ class Player:
                     # On-demand stream resolution if stream_url is missing or invalid
                     await self._ensure_valid_stream_url(track)
 
+                    # Start live progress bar updater task
+                    self._start_progress_updater(voice_client, track, bot_instance)
+
+                    eq_opt = getattr(self, "eq_option", "-vn")
                     playback_ok = await play_track_on_voice(
                         voice_client,
                         track,
                         loop=loop,
-                        options=getattr(self, "eq_option", "-vn"),
+                        options=eq_opt,
                         seek_time=seek_time,
                         volume=getattr(self, "volume", 1.0),
                     )
                     playback_seconds = loop.time() - playback_started_at
-                    if not self._restarting_current_track:
-                        # Repeated immediate endings indicate an expired/broken stream.
+
+                    # Check dynamic restarting state NOW (not stale from top of loop)
+                    restarting_now = getattr(self, "_restarting_current_track", False) or getattr(self, "seeking", False)
+
+                    # If playback ended unexpectedly early (<3s), attempt automatic stream refresh & filter fallback before skipping
+                    if not playback_ok and not restarting_now:
+                        if playback_seconds < 3 and (track.duration or 0) > 3:
+                            logger.warning("Playback ended unexpectedly after %.1fs for '%s'. Refreshing stream URL and retrying...", playback_seconds, track.title)
+                            await self._ensure_valid_stream_url(track, force_refresh=True)
+                            retry_start = loop.time()
+                            playback_ok = await play_track_on_voice(
+                                voice_client,
+                                track,
+                                loop=loop,
+                                options=eq_opt,
+                                seek_time=seek_time,
+                                volume=getattr(self, "volume", 1.0),
+                            )
+                            # If EQ filter caused startup exit, fallback to clean audio (-vn)
+                            if not playback_ok and eq_opt != "-vn":
+                                logger.warning("Equalizer filter '%s' failed for '%s'. Falling back to clean audio (-vn).", eq_opt, track.title)
+                                self.eq_option = "-vn"
+                                self.eq_preset_name = "flat"
+                                playback_ok = await play_track_on_voice(
+                                    voice_client,
+                                    track,
+                                    loop=loop,
+                                    options="-vn",
+                                    seek_time=seek_time,
+                                    volume=getattr(self, "volume", 1.0),
+                                )
+                            playback_seconds = loop.time() - retry_start
+
+                    if not restarting_now:
                         if not playback_ok or (playback_seconds < 3 and (track.duration or 0) > 3):
                             self._consecutive_playback_failures += 1
                             logger.warning("Playback ended unexpectedly after %.1fs for %s (%d consecutive failures).", playback_seconds, track.title, self._consecutive_playback_failures)
                         else:
                             self._consecutive_playback_failures = 0
-                except Exception as exc:
-                    logger.exception("Voice playback failed for track %s: %s", track.title, exc)
-                    if not self._restarting_current_track:
-                        self._consecutive_playback_failures += 1
 
-                    pass
+                except Exception as exc:
+                    logger.exception("Voice playback failed for track %s: %s", getattr(track, "title", "track"), exc)
+                    if not getattr(self, "_restarting_current_track", False) and not getattr(self, "seeking", False):
+                        self._consecutive_playback_failures += 1
                 finally:
-                    # Advance the queue after playback finishes (only if we are not seeking)
-                    if self._restarting_current_track:
-                        self._restarting_current_track = False
-                    elif getattr(self, "seeking", False):
-                        self.seeking = False
-                    else:
+                    if hasattr(self, "_progress_task") and self._progress_task and not self._progress_task.done():
+                        self._progress_task.cancel()
+
+                    # Advance the queue ONLY if we are NOT restarting for filter change or seek!
+                    is_restarting = getattr(self, "_restarting_current_track", False) or getattr(self, "seeking", False)
+                    if not is_restarting:
                         self.queue.dequeue()
-                    self.current_track_started_at = None
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.info("Track playback finished. Current queue size: %d. Autoplay enabled: %s", len(self.queue.get_queue()), self.autoplay_enabled)
+                        self.current_track_started_at = None
+                        logger.info("Track playback finished. Current queue size: %d. Autoplay enabled: %s", len(self.queue.get_queue()), self.autoplay_enabled)
+                    else:
+                        logger.info("Track '%s' is being restarted for EQ/seek filter change at %ds; preserving in queue.", getattr(track, "title", "track"), getattr(self, "seek_time", 0))
+
         except asyncio.CancelledError:
             return
         finally:
+            if hasattr(self, "_progress_task") and self._progress_task and not self._progress_task.done():
+                self._progress_task.cancel()
             if ch_id and bot_instance:
                 asyncio.create_task(update_vc_status(bot_instance, ch_id, ""))
 
+    def _start_progress_updater(self, voice_client, track, bot_instance):
+        if hasattr(self, "_progress_task") and self._progress_task and not self._progress_task.done():
+            self._progress_task.cancel()
+
+        async def _updater():
+            try:
+                from .ui import build_started_playing_embed
+                loop = asyncio.get_running_loop()
+                while voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+                    await asyncio.sleep(4)
+                    msg = getattr(self, "current_np_message", None)
+                    if not msg or not self.current_track_started_at:
+                        continue
+                    if voice_client.is_paused():
+                        continue
+                    current_sec = max(0, int(loop.time() - self.current_track_started_at))
+                    guild_name = voice_client.guild.name if (voice_client and voice_client.guild) else "Server"
+                    updated_embed = build_started_playing_embed(track, guild_name, bot_instance, self, current_sec=current_sec)
+                    try:
+                        await msg.edit(embed=updated_embed)
+                    except Exception:
+                        break
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning("Progress updater error: %s", e)
+
+        self._progress_task = asyncio.create_task(_updater())
+
+
     def stop_voice_playback(self):
+        self.reset_eq()
         vc = getattr(self, "_current_vc", None)
         if vc:
             bot_instance = getattr(vc, "client", None)
@@ -300,4 +400,5 @@ class Player:
         if self._voice_task and not self._voice_task.done():
             self._voice_task.cancel()
             self._voice_task = None
+
 

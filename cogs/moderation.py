@@ -54,6 +54,10 @@ def make_trigger_metadata(**kwargs):
     return kwargs
 
 
+AutoModExecutionType = getattr(discord, "AutoModExecution", getattr(discord, "AutoModAction", object))
+
+
+
 class Moderation(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
@@ -512,6 +516,45 @@ class Moderation(commands.Cog):
             logger.exception("Failed to fetch warns: %s", exc)
             await ctx.send("Failed to fetch warns.", ephemeral=True)
 
+    @commands.hybrid_command(name="rwarn", aliases=["unwarn", "rmwarn", "delwarn", "removewarn", "clearwarns"])
+    @commands.guild_only()
+    async def rwarn(self, ctx: commands.Context, target: discord.Member, amount: Optional[str] = "1"):
+        """Remove a specified number of warnings (or all warnings) from a member."""
+        if not (ctx.author.guild_permissions.kick_members or ctx.author.guild_permissions.manage_messages):
+            await ctx.send("❌ You don't have permission to remove warnings.", ephemeral=True)
+            return
+
+        deny = await self._ensure_can_moderate(ctx, target)
+        if deny:
+            await ctx.send(deny, ephemeral=True)
+            return
+
+        from utils.modlog import remove_warnings_for_target
+
+        clean_amt = amount.lower().strip() if amount else "1"
+        if clean_amt in ("all", "clear", "0", "-1"):
+            count = 0  # 0 means remove all warnings
+        else:
+            try:
+                count = int(clean_amt)
+            except ValueError:
+                count = 1
+
+        removed_count = await remove_warnings_for_target(ctx.guild.id, target.id, count=count)
+
+        if removed_count == 0:
+            await ctx.send(f"❌ {target.mention} has no active warnings to remove.", ephemeral=True)
+            return
+
+        if count == 0:
+            msg = f"✅ Cleared **all {removed_count} warnings** for {target.mention} (`ID: {target.id}`)."
+        else:
+            msg = f"✅ Removed **{removed_count} warning(s)** from {target.mention} (`ID: {target.id}`)."
+
+        await ctx.send(msg)
+        await self._post_modlog(ctx.guild, 0, "Unwarn", ctx.author, target, f"Removed {removed_count} warnings")
+
+
     @commands.hybrid_command(name="lock")
     @commands.guild_only()
     async def lock(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
@@ -857,9 +900,10 @@ class Moderation(commands.Cog):
             logger.exception("Failed to change nickname: %s", exc)
             await ctx.send("❌ Failed to change nickname.", ephemeral=True)
 
-    @commands.hybrid_command(name="forcenick", aliases=["fn", "locknick", "force_nick", "locknickname", "force_nickname"])
+    @commands.command(name="forcenick", aliases=["fn", "locknick", "force_nick", "locknickname", "force_nickname"])
     @commands.guild_only()
     async def forcenick(self, ctx: commands.Context, target: discord.Member, *, nickname: Optional[str] = None):
+
         """Force and lock a member's nickname. Use 'reset' to unlock."""
         if not ctx.guild:
             return
@@ -1282,7 +1326,7 @@ class Moderation(commands.Cog):
     @commands.hybrid_group(name="vcbomb", aliases=["vcb", "bombvc", "vcbombing"], invoke_without_command=True)
     @commands.guild_only()
     async def vcbomb(self, ctx: commands.Context, target: Optional[discord.Member] = None):
-        """Bomb a user's voice connection by dragging them continuously between voice channels (Bot Owner only). Shortcuts: vcbomb, vcb."""
+        """Drag a member continuously between voice channels (Bot Owner only)."""
         if not await self._is_bot_owner(ctx):
             await ctx.send("❌ This command is restricted to the Bot Owner.", ephemeral=True)
             return
@@ -1372,6 +1416,558 @@ class Moderation(commands.Cog):
         """Shortcut command to stop VC bombing a user or all users in the server (Bot Owner only)."""
         await self.vcbomb_stop(ctx, target=target)
 
+    @commands.hybrid_group(name="vc", invoke_without_command=True)
+    @commands.guild_only()
+    async def vc_group(self, ctx: commands.Context):
+        """Voice channel utilities and moderation commands."""
+        await ctx.send_help(ctx.command)
+
+    @vc_group.command(name="drag", aliases=["move", "pull"])
+    @commands.guild_only()
+    @commands.has_permissions(move_members=True)
+    @commands.bot_has_permissions(move_members=True)
+    async def vc_drag(self, ctx: commands.Context, target: discord.Member):
+        """Drag a member from their voice channel to your current voice channel."""
+        # 1. Ensure caller is in a VC
+        if not getattr(ctx.author, "voice", None) or not ctx.author.voice.channel:
+            await ctx.send("❌ You must be connected to a voice channel to drag someone to you!", ephemeral=True)
+            return
+
+        destination = ctx.author.voice.channel
+
+        # 2. Ensure target is in a VC
+        if not getattr(target, "voice", None) or not target.voice.channel:
+            await ctx.send(f"❌ {target.mention} is not connected to any voice channel in this server.", ephemeral=True)
+            return
+
+        origin = target.voice.channel
+
+        # 3. Check if already in the same VC
+        if origin.id == destination.id:
+            await ctx.send(f"ℹ️ {target.mention} is already in your voice channel (**{destination.name}**).", ephemeral=True)
+            return
+
+        # 4. Role hierarchy check
+        is_owner = await self._is_bot_owner(ctx)
+        if not is_owner and ctx.author.id != ctx.guild.owner_id:
+            if target.top_role >= ctx.author.top_role and target.id != ctx.author.id:
+                await ctx.send("❌ You cannot drag a member with an equal or higher role than you.", ephemeral=True)
+                return
+
+        # 5. Check bot connect permissions
+        if not destination.permissions_for(ctx.guild.me).connect:
+            await ctx.send(f"❌ I do not have permission to connect to **{destination.name}**.", ephemeral=True)
+            return
+
+        # 6. Execute move
+        try:
+            await target.move_to(destination, reason=f"VC drag requested by {ctx.author} ({ctx.author.id})")
+            embed = discord.Embed(
+                description=f"🔊 Successfully dragged {target.mention} from **{origin.name}** to **{destination.name}**!",
+                color=discord.Color.green()
+            )
+            from utils.embed_utils import set_owner_footer
+            set_owner_footer(embed, self.bot)
+            await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I don't have permission to move that user (check my role hierarchy and permissions).", ephemeral=True)
+        except Exception as exc:
+            logger.exception("Failed to drag user %s: %s", target.id, exc)
+            await ctx.send(f"❌ Failed to drag member: {exc}", ephemeral=True)
+
+    def _resolve_guild_member(self, guild: discord.Guild, query: str) -> Optional[discord.Member]:
+        """Intelligently resolve a member by ID, mention, or partial/exact username/display name/nickname."""
+        if not query:
+            return None
+        clean_q = query.strip().strip("<>@!&").strip()
+        if clean_q.isdigit():
+            m = guild.get_member(int(clean_q))
+            if m:
+                return m
+        q_lower = query.strip().lower()
+        # 1. Exact match by name, nick, or display name
+        for m in guild.members:
+            if m.name.lower() == q_lower or m.display_name.lower() == q_lower or (m.nick and m.nick.lower() == q_lower):
+                return m
+        # 2. Starts with match
+        for m in guild.members:
+            if m.name.lower().startswith(q_lower) or m.display_name.lower().startswith(q_lower) or (m.nick and m.nick.lower().startswith(q_lower)):
+                return m
+        # 3. Contains match
+        for m in guild.members:
+            if q_lower in m.name.lower() or q_lower in m.display_name.lower() or (m.nick and q_lower in m.nick.lower()):
+                return m
+        return None
+
+    @commands.command(name="vcdrag", aliases=["drag", "dragvc", "pull", "vcpull", "pullvc", "movevc"])
+    @commands.guild_only()
+    @commands.has_permissions(move_members=True)
+    @commands.bot_has_permissions(move_members=True)
+    async def vcdrag_direct(self, ctx: commands.Context, *, target: str):
+        """Drag or pull a member from their voice channel to your current voice channel."""
+        member = self._resolve_guild_member(ctx.guild, target)
+        if not member:
+            await ctx.send(f"❌ Could not find member `{target}` in this server. Please @mention them or provide their username/ID.", ephemeral=True)
+            return
+        await self.vc_drag(ctx, target=member)
+
+    @vc_group.command(name="disconnect", aliases=["dc", "kick"])
+    @commands.guild_only()
+    @commands.has_permissions(move_members=True)
+    @commands.bot_has_permissions(move_members=True)
+    async def vc_disconnect(self, ctx: commands.Context, target: discord.Member):
+        """Disconnect a member from their current voice channel."""
+        # 1. Ensure target is in a VC
+        if not getattr(target, "voice", None) or not target.voice.channel:
+            await ctx.send(f"❌ {target.mention} is not connected to any voice channel in this server.", ephemeral=True)
+            return
+
+        current_vc = target.voice.channel
+
+        # 2. Role hierarchy check
+        is_owner = await self._is_bot_owner(ctx)
+        if not is_owner and ctx.author.id != ctx.guild.owner_id:
+            if target.top_role >= ctx.author.top_role and target.id != ctx.author.id:
+                await ctx.send("❌ You cannot disconnect a member with an equal or higher role than you.", ephemeral=True)
+                return
+
+        # 3. Execute disconnect
+        try:
+            await target.move_to(None, reason=f"Voice disconnect requested by {ctx.author} ({ctx.author.id})")
+            embed = discord.Embed(
+                description=f"🔇 Successfully disconnected {target.mention} from **{current_vc.name}**!",
+                color=discord.Color.red()
+            )
+            from utils.embed_utils import set_owner_footer
+            set_owner_footer(embed, self.bot)
+            await ctx.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("❌ I don't have permission to disconnect that user (check my role hierarchy and permissions).", ephemeral=True)
+        except Exception as exc:
+            logger.exception("Failed to disconnect user %s from VC: %s", target.id, exc)
+            await ctx.send(f"❌ Failed to disconnect member: {exc}", ephemeral=True)
+
+    @commands.command(name="vdc", aliases=["vcdisconnect", "vckick", "disconnectvc", "kickvc", "vcd"])
+    @commands.guild_only()
+    @commands.has_permissions(move_members=True)
+    @commands.bot_has_permissions(move_members=True)
+    async def vdc_direct(self, ctx: commands.Context, *, target: str):
+        """Disconnect a member from their current voice channel."""
+        member = self._resolve_guild_member(ctx.guild, target)
+        if not member:
+            await ctx.send(f"❌ Could not find member `{target}` in this server. Please @mention them or provide their username/ID.", ephemeral=True)
+            return
+        await self.vc_disconnect(ctx, target=member)
+
+    # -------------------------------------------------------------------------
+    # Voice Channel Mass Tools (Move All, Mute All, Unmute All, Deafen All)
+    # -------------------------------------------------------------------------
+
+    def _resolve_guild_vc(self, guild: discord.Guild, query: str) -> Optional[discord.VoiceChannel]:
+        """Intelligently resolve a voice channel by ID, mention, or partial/exact name."""
+        if not query:
+            return None
+        clean_q = query.strip().strip("<>#!").strip()
+        if clean_q.isdigit():
+            ch = guild.get_channel(int(clean_q))
+            if isinstance(ch, discord.VoiceChannel):
+                return ch
+        q_lower = query.strip().lower()
+        # 1. Exact name match
+        for ch in guild.voice_channels:
+            if ch.name.lower() == q_lower:
+                return ch
+        # 2. Starts with match
+        for ch in guild.voice_channels:
+            if ch.name.lower().startswith(q_lower):
+                return ch
+        # 3. Contains match
+        for ch in guild.voice_channels:
+            if q_lower in ch.name.lower():
+                return ch
+        return None
+
+    @vc_group.command(name="moveall", aliases=["massmove"])
+    @commands.guild_only()
+    @commands.has_permissions(move_members=True)
+    @commands.bot_has_permissions(move_members=True)
+    async def vc_moveall(self, ctx: commands.Context, destination: discord.VoiceChannel, source: Optional[discord.VoiceChannel] = None):
+        """Move all members from one voice channel to another."""
+        # 1. Resolve source channel
+        if source is None:
+            if not getattr(ctx.author, "voice", None) or not ctx.author.voice.channel:
+                await ctx.send("❌ You must be in a voice channel or specify a source channel: `!vcmove <destination> [source]`", ephemeral=True)
+                return
+            source = ctx.author.voice.channel
+
+        if source.id == destination.id:
+            await ctx.send("❌ Source and destination voice channels cannot be the same!", ephemeral=True)
+            return
+
+        # 2. Check bot connect permissions for destination
+        if not destination.permissions_for(ctx.guild.me).connect:
+            await ctx.send(f"❌ I do not have permission to connect to **{destination.name}**.", ephemeral=True)
+            return
+
+        members = [m for m in source.members if not m.bot]
+        if not members:
+            await ctx.send(f"ℹ️ No non-bot members found in **{source.name}**.", ephemeral=True)
+            return
+
+        if not ctx.interaction:
+            status_msg = await ctx.send(f"🔄 Moving **{len(members)}** members from **{source.name}** to **{destination.name}**...")
+        else:
+            await ctx.defer()
+            status_msg = None
+
+        moved_count = 0
+        failed_count = 0
+        is_owner = await self._is_bot_owner(ctx)
+
+        for member in members:
+            if not is_owner and ctx.author.id != ctx.guild.owner_id:
+                if member.top_role >= ctx.author.top_role and member.id != ctx.author.id:
+                    failed_count += 1
+                    continue
+            try:
+                await member.move_to(destination, reason=f"Mass move by {ctx.author} ({ctx.author.id})")
+                moved_count += 1
+                await asyncio.sleep(0.15)  # Prevent Discord rate limits
+            except Exception:
+                failed_count += 1
+
+        embed = discord.Embed(
+            title="🔊 Mass Voice Move Complete",
+            description=(
+                f"• **From**: {source.mention} (`{source.name}`)\n"
+                f"• **To**: {destination.mention} (`{destination.name}`)\n"
+                f"• **Successfully Moved**: `{moved_count}`\n"
+                + (f"• **Skipped/Failed**: `{failed_count}` (Role hierarchy/permissions)" if failed_count else "")
+            ),
+            color=discord.Color.green() if moved_count > 0 else discord.Color.red()
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+        if ctx.interaction:
+            await ctx.interaction.followup.send(embed=embed)
+        elif status_msg:
+            await status_msg.edit(content=None, embed=embed)
+        else:
+            await ctx.send(embed=embed)
+
+    @commands.command(name="vcmove", aliases=["moveall", "massmove", "vcmoveall"])
+    @commands.guild_only()
+    @commands.has_permissions(move_members=True)
+    @commands.bot_has_permissions(move_members=True)
+    async def vcmove_direct(self, ctx: commands.Context, *, channels: str):
+        """Move all members from your current (or source) voice channel to a destination voice channel."""
+        author_vc = getattr(ctx.author, "voice", None).channel if (getattr(ctx.author, "voice", None) and ctx.author.voice.channel) else None
+
+        source: Optional[discord.VoiceChannel] = None
+        destination: Optional[discord.VoiceChannel] = None
+
+        # 1. Check explicit separators like " to ", " -> ", or ","
+        for sep in [" to ", " -> ", ","]:
+            if sep in channels:
+                p1, p2 = channels.split(sep, 1)
+                source = self._resolve_guild_vc(ctx.guild, p1)
+                destination = self._resolve_guild_vc(ctx.guild, p2)
+                if source and destination:
+                    break
+
+        # 2. Check if the entire string matches a destination channel (when author is in a VC)
+        if not destination and author_vc:
+            cand = self._resolve_guild_vc(ctx.guild, channels)
+            if cand and cand.id != author_vc.id:
+                source = author_vc
+                destination = cand
+
+        # 3. Check combinations of words (e.g. "baithak Sax sux nahi mil raha")
+        if not (source and destination):
+            words = channels.split()
+            for i in range(1, len(words)):
+                p1 = " ".join(words[:i])
+                p2 = " ".join(words[i:])
+                c1 = self._resolve_guild_vc(ctx.guild, p1)
+                c2 = self._resolve_guild_vc(ctx.guild, p2)
+                if c1 and c2 and c1.id != c2.id:
+                    source = c1
+                    destination = c2
+                    break
+
+        # 4. Fallback if single channel given
+        if not source and destination and author_vc:
+            source = author_vc
+
+        if not destination:
+            await ctx.send("❌ Could not resolve destination voice channel. Usage: `!vcmove <destination>` or `!vcmove <source> to <destination>`", ephemeral=True)
+            return
+
+        if not source:
+            await ctx.send("❌ You must be in a voice channel or specify a source channel: `!vcmove <source> to <destination>`", ephemeral=True)
+            return
+
+        await self.vc_moveall(ctx, destination=destination, source=source)
+
+    @vc_group.command(name="muteall", aliases=["massmute"])
+    @commands.guild_only()
+    @commands.has_permissions(mute_members=True)
+    @commands.bot_has_permissions(mute_members=True)
+    async def vc_muteall(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-mute all members in a voice channel."""
+        if channel is None:
+            if not getattr(ctx.author, "voice", None) or not ctx.author.voice.channel:
+                await ctx.send("❌ You must be in a voice channel or specify a channel: `!massmute [channel]`", ephemeral=True)
+                return
+            channel = ctx.author.voice.channel
+
+        members = [m for m in channel.members if not m.bot and not m.voice.mute]
+        if not members:
+            await ctx.send(f"ℹ️ No unmuted members found in **{channel.name}**.", ephemeral=True)
+            return
+
+        if not ctx.interaction:
+            status_msg = await ctx.send(f"🔇 Muting **{len(members)}** members in **{channel.name}**...")
+        else:
+            await ctx.defer()
+            status_msg = None
+
+        muted_count = 0
+        failed_count = 0
+        is_owner = await self._is_bot_owner(ctx)
+
+        for member in members:
+            if not is_owner and ctx.author.id != ctx.guild.owner_id:
+                if member.top_role >= ctx.author.top_role and member.id != ctx.author.id:
+                    failed_count += 1
+                    continue
+            try:
+                await member.edit(mute=True, reason=f"VC mass mute by {ctx.author} ({ctx.author.id})")
+                muted_count += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                failed_count += 1
+
+        embed = discord.Embed(
+            title="🔇 Mass Voice Mute",
+            description=f"Server-muted **{muted_count}** member(s) in **{channel.name}**."
+            + (f"\n*Skipped {failed_count} member(s) due to role hierarchy.*" if failed_count else ""),
+            color=discord.Color.orange()
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+        if ctx.interaction:
+            await ctx.interaction.followup.send(embed=embed)
+        elif status_msg:
+            await status_msg.edit(content=None, embed=embed)
+        else:
+            await ctx.send(embed=embed)
+
+    @commands.command(name="massmute", aliases=["muteall", "vcmuteall"])
+    @commands.guild_only()
+    @commands.has_permissions(mute_members=True)
+    @commands.bot_has_permissions(mute_members=True)
+    async def massmute_direct(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-mute all members in your current (or specified) voice channel."""
+        await self.vc_muteall(ctx, channel=channel)
+
+    @vc_group.command(name="unmuteall", aliases=["massunmute"])
+    @commands.guild_only()
+    @commands.has_permissions(mute_members=True)
+    @commands.bot_has_permissions(mute_members=True)
+    async def vc_unmuteall(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-unmute all members in a voice channel."""
+        if channel is None:
+            if not getattr(ctx.author, "voice", None) or not ctx.author.voice.channel:
+                await ctx.send("❌ You must be in a voice channel or specify a channel: `!massunmute [channel]`", ephemeral=True)
+                return
+            channel = ctx.author.voice.channel
+
+        members = [m for m in channel.members if not m.bot and m.voice.mute]
+        if not members:
+            await ctx.send(f"ℹ️ No server-muted members found in **{channel.name}**.", ephemeral=True)
+            return
+
+        if not ctx.interaction:
+            status_msg = await ctx.send(f"🔊 Unmuting **{len(members)}** members in **{channel.name}**...")
+        else:
+            await ctx.defer()
+            status_msg = None
+
+        unmuted_count = 0
+        failed_count = 0
+        is_owner = await self._is_bot_owner(ctx)
+
+        for member in members:
+            if not is_owner and ctx.author.id != ctx.guild.owner_id:
+                if member.top_role >= ctx.author.top_role and member.id != ctx.author.id:
+                    failed_count += 1
+                    continue
+            try:
+                await member.edit(mute=False, reason=f"VC mass unmute by {ctx.author} ({ctx.author.id})")
+                unmuted_count += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                failed_count += 1
+
+        embed = discord.Embed(
+            title="🔊 Mass Voice Unmute",
+            description=f"Server-unmuted **{unmuted_count}** member(s) in **{channel.name}**."
+            + (f"\n*Skipped {failed_count} member(s) due to role hierarchy.*" if failed_count else ""),
+            color=discord.Color.green()
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+        if ctx.interaction:
+            await ctx.interaction.followup.send(embed=embed)
+        elif status_msg:
+            await status_msg.edit(content=None, embed=embed)
+        else:
+            await ctx.send(embed=embed)
+
+    @commands.command(name="massunmute", aliases=["unmuteall", "vcunmuteall"])
+    @commands.guild_only()
+    @commands.has_permissions(mute_members=True)
+    @commands.bot_has_permissions(mute_members=True)
+    async def massunmute_direct(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-unmute all members in your current (or specified) voice channel."""
+        await self.vc_unmuteall(ctx, channel=channel)
+
+    @vc_group.command(name="deafenall", aliases=["massdeafen"])
+    @commands.guild_only()
+    @commands.has_permissions(deafen_members=True)
+    @commands.bot_has_permissions(deafen_members=True)
+    async def vc_deafenall(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-deafen all members in a voice channel."""
+        if channel is None:
+            if not getattr(ctx.author, "voice", None) or not ctx.author.voice.channel:
+                await ctx.send("❌ You must be in a voice channel or specify a channel: `!massdeafen [channel]`", ephemeral=True)
+                return
+            channel = ctx.author.voice.channel
+
+        members = [m for m in channel.members if not m.bot and not m.voice.deaf]
+        if not members:
+            await ctx.send(f"ℹ️ No undeafened members found in **{channel.name}**.", ephemeral=True)
+            return
+
+        if not ctx.interaction:
+            status_msg = await ctx.send(f"🔇 Deafening **{len(members)}** members in **{channel.name}**...")
+        else:
+            await ctx.defer()
+            status_msg = None
+
+        deaf_count = 0
+        failed_count = 0
+        is_owner = await self._is_bot_owner(ctx)
+
+        for member in members:
+            if not is_owner and ctx.author.id != ctx.guild.owner_id:
+                if member.top_role >= ctx.author.top_role and member.id != ctx.author.id:
+                    failed_count += 1
+                    continue
+            try:
+                await member.edit(deafen=True, reason=f"VC mass deafen by {ctx.author} ({ctx.author.id})")
+                deaf_count += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                failed_count += 1
+
+        embed = discord.Embed(
+            title="🔇 Mass Voice Deafen",
+            description=f"Server-deafened **{deaf_count}** member(s) in **{channel.name}**."
+            + (f"\n*Skipped {failed_count} member(s) due to role hierarchy.*" if failed_count else ""),
+            color=discord.Color.red()
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+        if ctx.interaction:
+            await ctx.interaction.followup.send(embed=embed)
+        elif status_msg:
+            await status_msg.edit(content=None, embed=embed)
+        else:
+            await ctx.send(embed=embed)
+
+    @commands.command(name="massdeafen", aliases=["deafenall", "vcdeafenall"])
+    @commands.guild_only()
+    @commands.has_permissions(deafen_members=True)
+    @commands.bot_has_permissions(deafen_members=True)
+    async def massdeafen_direct(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-deafen all members in your current (or specified) voice channel."""
+        await self.vc_deafenall(ctx, channel=channel)
+
+    @vc_group.command(name="undeafenall", aliases=["massundeafen"])
+    @commands.guild_only()
+    @commands.has_permissions(deafen_members=True)
+    @commands.bot_has_permissions(deafen_members=True)
+    async def vc_undeafenall(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-undeafen all members in a voice channel."""
+        if channel is None:
+            if not getattr(ctx.author, "voice", None) or not ctx.author.voice.channel:
+                await ctx.send("❌ You must be in a voice channel or specify a channel: `!massundeafen [channel]`", ephemeral=True)
+                return
+            channel = ctx.author.voice.channel
+
+        members = [m for m in channel.members if not m.bot and m.voice.deaf]
+        if not members:
+            await ctx.send(f"ℹ️ No server-deafened members found in **{channel.name}**.", ephemeral=True)
+            return
+
+        if not ctx.interaction:
+            status_msg = await ctx.send(f"🔊 Undeafening **{len(members)}** members in **{channel.name}**...")
+        else:
+            await ctx.defer()
+            status_msg = None
+
+        undeaf_count = 0
+        failed_count = 0
+        is_owner = await self._is_bot_owner(ctx)
+
+        for member in members:
+            if not is_owner and ctx.author.id != ctx.guild.owner_id:
+                if member.top_role >= ctx.author.top_role and member.id != ctx.author.id:
+                    failed_count += 1
+                    continue
+            try:
+                await member.edit(deafen=False, reason=f"VC mass undeafen by {ctx.author} ({ctx.author.id})")
+                undeaf_count += 1
+                await asyncio.sleep(0.1)
+            except Exception:
+                failed_count += 1
+
+        embed = discord.Embed(
+            title="🔊 Mass Voice Undeafen",
+            description=f"Server-undeafened **{undeaf_count}** member(s) in **{channel.name}**."
+            + (f"\n*Skipped {failed_count} member(s) due to role hierarchy.*" if failed_count else ""),
+            color=discord.Color.green()
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+
+        if ctx.interaction:
+            await ctx.interaction.followup.send(embed=embed)
+        elif status_msg:
+            await status_msg.edit(content=None, embed=embed)
+        else:
+            await ctx.send(embed=embed)
+
+    @commands.command(name="massundeafen", aliases=["undeafenall", "vcundeafenall"])
+    @commands.guild_only()
+    @commands.has_permissions(deafen_members=True)
+    @commands.bot_has_permissions(deafen_members=True)
+    async def massundeafen_direct(self, ctx: commands.Context, channel: Optional[discord.VoiceChannel] = None):
+        """Server-undeafen all members in your current (or specified) voice channel."""
+        await self.vc_undeafenall(ctx, channel=channel)
+
+
+
+
+
+
+
 
     @commands.hybrid_command(name="history", aliases=["modhistory", "crimes"])
 
@@ -1398,7 +1994,8 @@ class Moderation(commands.Cog):
             await ctx.send("❌ Failed to fetch moderation history.", ephemeral=True)
 
     @commands.Cog.listener()
-    async def on_automod_action(self, execution: discord.AutoModExecution):
+    async def on_automod_action(self, execution: AutoModExecutionType):
+
         """Fires when Discord's Native AutoMod executes an action (e.g. blocks a message, timeouts a member)."""
         guild = execution.guild
         if not guild:
@@ -2263,13 +2860,21 @@ class Moderation(commands.Cog):
     # =========================================================================
     # ANTI-NUKE ENGINE & PROTECTION SUITE
     # =========================================================================
+    # ANTI-NUKE PROTECTION ENGINE (Fortified & Ultra-Strong)
+    # =========================================================================
 
     def _init_antinuke_buffers(self):
         if not hasattr(self, "_antinuke_history"):
             self._antinuke_history = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
 
-    async def _check_and_trigger_antinuke(self, guild: discord.Guild, action_type: str, fallback_executor: Optional[discord.Member] = None):
-        """Core Anti-Nuke rate limiter & protection engine."""
+    async def _check_and_trigger_antinuke(
+        self,
+        guild: discord.Guild,
+        action_type: str,
+        fallback_executor: Optional[Union[discord.Member, discord.User]] = None,
+        extra_data: Optional[Dict[str, Any]] = None
+    ):
+        """Core Fortified Anti-Nuke rate limiter, auto-recovery & active defense engine."""
         if not guild:
             return
 
@@ -2291,13 +2896,16 @@ class Moderation(commands.Cog):
                 "emoji_delete": getattr(discord.AuditLogAction, "emoji_delete", None),
                 "sticker_delete": getattr(discord.AuditLogAction, "sticker_delete", None),
                 "permission_abuse": getattr(discord.AuditLogAction, "role_update", None),
+                "guild_update": getattr(discord.AuditLogAction, "guild_update", None),
             }
             log_action_enum = audit_action_map.get(action_type)
             if log_action_enum and guild.me and getattr(guild.me.guild_permissions, "view_audit_log", False):
-                async for entry in guild.audit_logs(limit=1, action=log_action_enum):
+                async for entry in guild.audit_logs(limit=3, action=log_action_enum):
                     if entry.user:
-                        executor = entry.user
-                    break
+                        # Check freshness (within last 15 seconds)
+                        if (datetime.now(timezone.utc) - entry.created_at).total_seconds() < 15:
+                            executor = entry.user
+                            break
         except Exception as exc:
             logger.warning("Failed to fetch audit log for antinuke: %s", exc)
 
@@ -2344,15 +2952,15 @@ class Moderation(commands.Cog):
                     if "all" in r_cats or action_type in r_cats or (action_type == "permission_abuse" and "role_update" in r_cats) or (action_type == "webhook_spam" and "webhook" in r_cats):
                         return
 
-
-
-        # Rate Limiting via Sliding Window
+        # Rate Limiting & Strict Mode Handling
         self._init_antinuke_buffers()
 
-        # Threshold limits (default: 3 actions within 10 seconds)
+        is_strict = cfg.get("antinuke_strict", False)
         thresholds = cfg.get("antinuke_thresholds", {})
-        limit_data = thresholds.get(action_type, [3, 10])
+        limit_data = thresholds.get(action_type, [1 if is_strict else 3, 10])
         max_count, window_sec = limit_data[0], limit_data[1]
+        if is_strict:
+            max_count = 1
 
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=window_sec)
@@ -2363,18 +2971,80 @@ class Moderation(commands.Cog):
         self._antinuke_history[guild.id][executor.id][action_type] = history
 
         if len(history) >= max_count:
-            punishment = cfg.get("antinuke_punishment", "strip_roles")
+            punishment = cfg.get("antinuke_punishment", "ban")
             await self._punish_nuke_attacker(guild, executor, action_type, len(history), punishment)
 
+            # Auto-Recovery & Mitigation
+            if cfg.get("antinuke_recovery", True) and extra_data:
+                await self._execute_antinuke_recovery(guild, action_type, extra_data)
+
+    async def _execute_antinuke_recovery(self, guild: discord.Guild, action_type: str, extra_data: Dict[str, Any]):
+        """Automatically recover deleted channels, roles, webhooks, or unban victims."""
+        try:
+            if action_type == "channel_delete":
+                ch_name = extra_data.get("name", "recovered-channel")
+                ch_cat = extra_data.get("category")
+                if extra_data.get("type") == discord.ChannelType.voice:
+                    await guild.create_voice_channel(name=ch_name, category=ch_cat, reason="Anti-Nuke Auto-Recovery: Recreated deleted voice channel")
+                else:
+                    await guild.create_text_channel(name=ch_name, category=ch_cat, reason="Anti-Nuke Auto-Recovery: Recreated deleted text channel")
+
+            elif action_type == "role_delete":
+                r_name = extra_data.get("name", "recovered-role")
+                r_color = extra_data.get("color", discord.Color.default())
+                r_hoist = extra_data.get("hoist", False)
+                await guild.create_role(name=r_name, color=r_color, hoist=r_hoist, reason="Anti-Nuke Auto-Recovery: Recreated deleted role")
+
+            elif action_type == "bot_add":
+                # Kick the rogue bot immediately
+                rogue_bot = extra_data.get("bot_member")
+                if rogue_bot and isinstance(rogue_bot, discord.Member) and rogue_bot.bot:
+                    await rogue_bot.kick(reason="Anti-Nuke Active Defense: Unauthorized rogue bot added")
+
+            elif action_type == "permission_abuse":
+                # Revoke dangerous admin permissions from compromised role
+                role = extra_data.get("role")
+                if role and isinstance(role, discord.Role):
+                    safe_perms = role.permissions
+                    safe_perms.update(
+                        administrator=False,
+                        manage_guild=False,
+                        manage_roles=False,
+                        ban_members=False,
+                        kick_members=False,
+                        manage_channels=False,
+                        manage_webhooks=False
+                    )
+                    await role.edit(permissions=safe_perms, reason="Anti-Nuke Active Defense: Revoked dangerous permissions")
+
+            elif action_type == "webhook_spam":
+                # Delete rogue webhooks created in channel
+                target_chan = extra_data.get("channel")
+                if target_chan and hasattr(target_chan, "webhooks"):
+                    wh_list = await target_chan.webhooks()
+                    for wh in wh_list:
+                        try:
+                            await wh.delete(reason="Anti-Nuke Active Defense: Removed unauthorized webhook")
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.exception("Failed to execute antinuke auto-recovery for %s: %s", action_type, e)
+
     async def _punish_nuke_attacker(self, guild: discord.Guild, attacker: Union[discord.User, discord.Member], action_type: str, count: int, punishment: str):
-        """Execute Anti-Nuke punishment and alert Server Owner & ModLog."""
-        reason = f"🚨 Anti-Nuke Protection Triggered! Executed {count} {action_type} actions within threshold."
+        """Execute Anti-Nuke punishment, isolate permissions, and alert Server Owner & ModLog."""
+        reason = f"🚨 Anti-Nuke Protection Triggered! Executed {count} {action_type} action(s)."
         member = guild.get_member(attacker.id) if isinstance(attacker, discord.User) else attacker
 
         punishment_applied = "None"
         try:
             if member:
-                if punishment in ["strip_roles", "strip"]:
+                if punishment in ["ban", "default"]:
+                    await guild.ban(member, reason=reason, delete_message_days=1)
+                    punishment_applied = "Banned from server"
+                elif punishment == "kick":
+                    await member.kick(reason=reason)
+                    punishment_applied = "Kicked from server"
+                elif punishment in ["strip_roles", "strip"]:
                     bot_top = getattr(guild.me, "top_role", None)
                     roles_to_remove = [r for r in member.roles if getattr(r, "name", "") != "@everyone" and (bot_top is None or r < bot_top)]
                     if roles_to_remove:
@@ -2382,12 +3052,18 @@ class Moderation(commands.Cog):
                         punishment_applied = f"Stripped {len(roles_to_remove)} roles"
                     else:
                         punishment_applied = "No assignable roles to strip"
-                elif punishment == "ban":
-                    await guild.ban(member, reason=reason, delete_message_days=1)
-                    punishment_applied = "Banned from server"
-                elif punishment == "kick":
-                    await member.kick(reason=reason)
-                    punishment_applied = "Kicked from server"
+
+                elif punishment == "quarantine":
+                    # Quarantine: strip all roles + timeout for 28 days
+                    bot_top = getattr(guild.me, "top_role", None)
+                    roles_to_remove = [r for r in member.roles if getattr(r, "name", "") != "@everyone" and (bot_top is None or r < bot_top)]
+                    if roles_to_remove:
+                        await member.remove_roles(*roles_to_remove, reason=reason)
+                    try:
+                        await member.timeout(timedelta(days=28), reason=reason)
+                        punishment_applied = "Quarantined (Stripped roles & 28-day Timeout)"
+                    except Exception:
+                        punishment_applied = "Quarantined (Stripped roles)"
         except Exception as e:
             logger.exception("Failed to apply antinuke punishment to %s: %s", attacker.id, e)
             punishment_applied = f"Failed ({e})"
@@ -2403,13 +3079,13 @@ class Moderation(commands.Cog):
 
         embed = discord.Embed(
             title="🚨 EMERGENCY ANTI-NUKE DETECTED!",
-            description=f"Anti-Nuke protection triggered for {attacker.mention} (`ID: {attacker.id}`).",
+            description=f"Anti-Nuke defense triggered for {attacker.mention} (`ID: {attacker.id}`).",
             color=discord.Color.red(),
             timestamp=datetime.now(timezone.utc)
         )
         embed.add_field(name="Trigger Event", value=f"`{action_type}` ({count} detections)", inline=True)
         embed.add_field(name="Punishment Executed", value=f"`{punishment_applied}`", inline=True)
-        embed.set_footer(text=f"Anti-Nuke Engine • {guild.name}")
+        embed.set_footer(text=f"Anti-Nuke Defense Engine • {guild.name}")
 
         cfg = await get_guild_config(guild.id)
         log_ch_id = cfg.get("antinuke_log_channel_id") or cfg.get("automod_log_channel_id") or cfg.get("modlog_channel_id")
@@ -2421,12 +3097,17 @@ class Moderation(commands.Cog):
                 except Exception:
                     pass
 
-        # Send DM to Server Owner
+        # Send Emergency DM to Server Owner
         try:
             if getattr(guild, "owner", None):
                 owner_embed = discord.Embed(
                     title=f"🚨 EMERGENCY: Anti-Nuke Triggered in {guild.name}",
-                    description=f"User **{attacker}** (`ID: {attacker.id}`) triggered Anti-Nuke by performing mass **{action_type}**.\n\n**Action Taken:** {punishment_applied}",
+                    description=(
+                        f"User **{attacker}** (`ID: {attacker.id}`) triggered Anti-Nuke by performing **{action_type}**.\n\n"
+                        f"• **Action Taken**: `{punishment_applied}`\n"
+                        f"• **Server**: **{guild.name}**\n"
+                        f"• **Auto-Recovery**: `{'Active' if cfg.get('antinuke_recovery', True) else 'Disabled'}`"
+                    ),
                     color=discord.Color.red(),
                     timestamp=datetime.now(timezone.utc)
                 )
@@ -2435,12 +3116,16 @@ class Moderation(commands.Cog):
             pass
 
     # -------------------------------------------------------------------------
-    # Anti-Nuke Event Listeners (8/8 Monitored Protections)
+    # Anti-Nuke Event Listeners (Monitored Protections)
     # -------------------------------------------------------------------------
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
-        await self._check_and_trigger_antinuke(channel.guild, "channel_delete")
+        await self._check_and_trigger_antinuke(
+            channel.guild,
+            "channel_delete",
+            extra_data={"name": channel.name, "category": getattr(channel, "category", None), "type": channel.type}
+        )
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
@@ -2448,7 +3133,11 @@ class Moderation(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role):
-        await self._check_and_trigger_antinuke(role.guild, "role_delete")
+        await self._check_and_trigger_antinuke(
+            role.guild,
+            "role_delete",
+            extra_data={"name": role.name, "color": role.color, "hoist": role.hoist}
+        )
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role):
@@ -2471,6 +3160,9 @@ class Moderation(commands.Cog):
             except Exception:
                 pass
 
+            if moderator and self.bot.user and moderator.id == self.bot.user.id:
+                return
+
             case = await log_action(guild.id, moderator.id if moderator else 0, user.id, "ban", reason)
             await self._post_modlog(guild, case, "Ban", moderator or self.bot.user, user, reason)
         except Exception as e:
@@ -2491,11 +3183,13 @@ class Moderation(commands.Cog):
             except Exception:
                 pass
 
+            if moderator and self.bot.user and moderator.id == self.bot.user.id:
+                return
+
             case = await log_action(guild.id, moderator.id if moderator else 0, user.id, "unban", reason)
             await self._post_modlog(guild, case, "Unban", moderator or self.bot.user, user, reason)
         except Exception as e:
             logger.warning("Failed to post unban modlog for user %s in %s: %s", user.id, guild.id, e)
-
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
@@ -2504,11 +3198,11 @@ class Moderation(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if member.bot:
-            await self._check_and_trigger_antinuke(member.guild, "bot_add", fallback_executor=member)
+            await self._check_and_trigger_antinuke(member.guild, "bot_add", fallback_executor=member, extra_data={"bot_member": member})
 
     @commands.Cog.listener()
     async def on_webhooks_update(self, channel: discord.abc.GuildChannel):
-        await self._check_and_trigger_antinuke(channel.guild, "webhook_spam")
+        await self._check_and_trigger_antinuke(channel.guild, "webhook_spam", extra_data={"channel": channel})
 
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild: discord.Guild, before: List[discord.Emoji], after: List[discord.Emoji]):
@@ -2522,7 +3216,7 @@ class Moderation(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
-        dangerous_perms = ["administrator", "manage_guild", "manage_roles", "ban_members", "kick_members"]
+        dangerous_perms = ["administrator", "manage_guild", "manage_roles", "ban_members", "kick_members", "manage_channels", "manage_webhooks"]
         dangerous_added = False
         for p in dangerous_perms:
             was_set = getattr(before.permissions, p, False)
@@ -2532,27 +3226,100 @@ class Moderation(commands.Cog):
                 break
 
         if dangerous_added:
-            await self._check_and_trigger_antinuke(after.guild, "permission_abuse")
+            await self._check_and_trigger_antinuke(after.guild, "permission_abuse", extra_data={"role": after})
+
+    @commands.Cog.listener()
+    async def on_guild_update(self, before: discord.Guild, after: discord.Guild):
+        """Monitor server changes like vanity URL or server name modifications."""
+        suspicious = False
+        if before.name != after.name:
+            suspicious = True
+        elif getattr(before, "vanity_url_code", None) != getattr(after, "vanity_url_code", None):
+            suspicious = True
+
+        if suspicious:
+            await self._check_and_trigger_antinuke(after, "guild_update")
+
+    async def _is_antinuke_admin(self, ctx: commands.Context) -> bool:
+        """Check if author is Server Owner, Bot Owner, or Verified Whitelisted Admin."""
+        if not ctx.guild or not ctx.author:
+            return False
+
+        # 1. Server Owner is permanently authorized
+        if getattr(ctx.guild, "owner_id", None) and ctx.author.id == ctx.guild.owner_id:
+            return True
+
+        # 2. Bot Owner is authorized
+        owner_id = os.getenv("OWNER_ID")
+        if owner_id and str(ctx.author.id) == str(owner_id):
+            return True
+        try:
+            if await self.bot.is_owner(ctx.author):
+                return True
+        except Exception:
+            pass
+
+        # 3. Check Whitelisted Users
+        cfg = await get_guild_config(ctx.guild.id)
+        user_wl = cfg.get("antinuke_whitelisted_users", {})
+        if isinstance(user_wl, list) and ctx.author.id in user_wl:
+            return True
+        elif isinstance(user_wl, dict):
+            u_cats = user_wl.get(str(ctx.author.id), [])
+            if "all" in u_cats or "config" in u_cats or "admin" in u_cats:
+                return True
+
+        # 4. Check Whitelisted Roles
+        role_wl = cfg.get("antinuke_whitelisted_roles", {})
+        if hasattr(ctx.author, "roles"):
+            for r in ctx.author.roles:
+                r_id = getattr(r, "id", None)
+                if r_id is None:
+                    continue
+                if isinstance(role_wl, list) and r_id in role_wl:
+                    return True
+                elif isinstance(role_wl, dict):
+                    r_cats = role_wl.get(str(r_id), [])
+                    if "all" in r_cats or "config" in r_cats or "admin" in r_cats:
+                        return True
+
+        return False
+
+    async def _verify_antinuke_admin(self, ctx: commands.Context) -> bool:
+        """Enforce verified whitelisted admin access to anti-nuke management."""
+        if await self._is_antinuke_admin(ctx):
+            return True
+
+        embed = discord.Embed(
+            title="🔒 Access Denied: Anti-Nuke Security",
+            description="❌ Only the **Server Owner** or **Verified Whitelisted Admins** can modify Anti-Nuke settings.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Ask the Server Owner to whitelist your user or role using: !antinuke whitelist add_user")
+        await ctx.send(embed=embed, ephemeral=True)
+        return False
 
     # -------------------------------------------------------------------------
-    # Anti-Nuke Commands
+    # Fortified Anti-Nuke Commands
     # -------------------------------------------------------------------------
 
     @commands.hybrid_group(name="antinuke", invoke_without_command=True)
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     async def antinuke(self, ctx: commands.Context):
-        """Anti-Nuke server defense and raid protection settings."""
+        """Fortified Anti-Nuke server defense and active raid protection suite."""
         await ctx.send_help(ctx.command)
 
-    @antinuke.command(name="config")
+    @antinuke.command(name="config", aliases=["status"])
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     async def antinuke_config(self, ctx: commands.Context):
-        """View Anti-Nuke configuration and whitelist settings."""
+        """View Anti-Nuke configuration, active defenses, and whitelists."""
         cfg = await get_guild_config(ctx.guild.id)
         enabled = cfg.get("antinuke_enabled", True)
-        punishment = cfg.get("antinuke_punishment", "strip_roles")
+        punishment = cfg.get("antinuke_punishment", "ban")
+        is_strict = cfg.get("antinuke_strict", False)
+        recovery = cfg.get("antinuke_recovery", True)
 
         user_wl = cfg.get("antinuke_whitelisted_users", {})
         role_wl = cfg.get("antinuke_whitelisted_roles", {})
@@ -2560,30 +3327,33 @@ class Moderation(commands.Cog):
         u_cnt = len(user_wl) if isinstance(user_wl, (dict, list)) else 0
         r_cnt = len(role_wl) if isinstance(role_wl, (dict, list)) else 0
 
-        status_str = "🟢 **Enabled**" if enabled else "🔴 **Disabled**"
+        status_str = "🟢 **Active & Armed**" if enabled else "🔴 **Disabled**"
 
         embed = discord.Embed(
-            title=f"🛡️ Anti-Nuke Configuration — {ctx.guild.name}",
-            color=discord.Color.blurple()
+            title=f"🛡️ Fortified Anti-Nuke Engine — {ctx.guild.name}",
+            color=discord.Color.brand_green() if enabled else discord.Color.red()
         )
-        embed.add_field(name="Protection Status", value=status_str, inline=True)
+        embed.add_field(name="Defense Status", value=status_str, inline=True)
         embed.add_field(name="Punishment Mode", value=f"`{punishment}`", inline=True)
+        embed.add_field(name="Strict (Instant Ban)", value=f"`{'ON (Threshold: 1)' if is_strict else 'OFF (Sliding Window)'}`", inline=True)
+        embed.add_field(name="Auto-Recovery (Undo)", value=f"`{'ON' if recovery else 'OFF'}`", inline=True)
         embed.add_field(name="Whitelisted Entries", value=f"👥 **Users:** `{u_cnt}` | 🎭 **Roles:** `{r_cnt}`", inline=True)
         embed.add_field(
-            name="Protected Modules (8/8)",
+            name="Protected Modules (10/10)",
             value=(
-                "> • 📺 **Channel Delete**\n"
-                "> • ➕ **Channel Create Spam**\n"
-                "> • 🎭 **Role Delete**\n"
-                "> • ➕ **Role Create Spam**\n"
-                "> • 🔗 **Webhook Spam**\n"
-                "> • 😃 **Emoji Delete**\n"
-                "> • 🏷️ **Sticker Delete**\n"
-                "> • ⚠️ **Permission Abuse**"
+                "> • 📺 **Channel Delete & Create** (Auto-Recreate)\n"
+                "> • 🎭 **Role Delete & Create** (Auto-Recreate)\n"
+                "> • 🤖 **Rogue Bot Add** (Auto-Kick Bot & Ban Inviter)\n"
+                "> • 🔗 **Webhook Spam** (Auto-Delete Webhook)\n"
+                "> • ⚠️ **Permission Abuse** (Auto-Revoke Admin Perms)\n"
+                "> • 🔨 **Mass Ban & Kick Raids**\n"
+                "> • 😃 **Emoji & Sticker Deletions**\n"
+                "> • 🌐 **Server / Vanity Update Hijack**"
             ),
             inline=False
         )
-        embed.set_footer(text="Use !antinuke whitelist add_user or add_role to manage whitelisted categories")
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot, extra_text="Helix Ultra-Defense Engine")
         await ctx.send(embed=embed)
 
     @antinuke.command(name="enable")
@@ -2591,30 +3361,128 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def antinuke_enable(self, ctx: commands.Context):
         """Enable Anti-Nuke protection for this server."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         await set_guild_config(ctx.guild.id, {"antinuke_enabled": True})
-        await ctx.send("🛡️ **Anti-Nuke Protection** is now 🟢 **Enabled** for this server.")
+        await ctx.send("🛡️ **Anti-Nuke Protection** is now 🟢 **Active & Armed** for this server.")
 
     @antinuke.command(name="disable")
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     async def antinuke_disable(self, ctx: commands.Context):
         """Disable Anti-Nuke protection for this server."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         await set_guild_config(ctx.guild.id, {"antinuke_enabled": False})
         await ctx.send("⚠️ **Anti-Nuke Protection** is now 🔴 **Disabled** for this server.")
+
+    @antinuke.command(name="strict")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_strict(self, ctx: commands.Context, state: str):
+        """Toggle Anti-Nuke Zero-Tolerance Strict Mode (1-action ban)."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
+        clean_state = state.lower().strip()
+        is_on = clean_state in ["on", "enable", "true", "1", "yes"]
+        await set_guild_config(ctx.guild.id, {"antinuke_strict": is_on})
+        await ctx.send(f"🛡️ Anti-Nuke **Strict Mode (Zero-Tolerance)** set to: `{'🟢 ON (Instant Action)' if is_on else '🔴 OFF'}`.")
+
+    @antinuke.command(name="recovery")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_recovery(self, ctx: commands.Context, state: str):
+        """Toggle Anti-Nuke auto-recreation of deleted channels and roles."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
+        clean_state = state.lower().strip()
+        is_on = clean_state in ["on", "enable", "true", "1", "yes"]
+        await set_guild_config(ctx.guild.id, {"antinuke_recovery": is_on})
+        await ctx.send(f"🔄 Anti-Nuke **Auto-Recovery & Reversion** set to: `{'🟢 ON' if is_on else '🔴 OFF'}`.")
+
+    @antinuke.command(name="lockdown")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_lockdown(self, ctx: commands.Context, state: str):
+        """Emergency lockdown: Revoke send/speak perms for @everyone."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
+        clean_state = state.lower().strip()
+        is_lock = clean_state in ["on", "enable", "true", "1", "lock", "yes"]
+
+        status_msg = await ctx.send(f"🚨 **Executing Emergency Server Lockdown ({'ON' if is_lock else 'OFF'})...**")
+
+        channels_locked = 0
+        for channel in ctx.guild.text_channels:
+            try:
+                overwrites = channel.overwrites_for(ctx.guild.default_role)
+                if is_lock:
+                    overwrites.send_messages = False
+                    overwrites.send_messages_in_threads = False
+                    overwrites.create_public_threads = False
+                else:
+                    overwrites.send_messages = None
+                    overwrites.send_messages_in_threads = None
+                    overwrites.create_public_threads = None
+                await channel.set_permissions(ctx.guild.default_role, overwrite=overwrites)
+                channels_locked += 1
+            except Exception:
+                pass
+
+        embed = discord.Embed(
+            title=f"🚨 EMERGENCY LOCKDOWN {'ACTIVATED' if is_lock else 'LIFTED'}",
+            description=(
+                f"**Status**: {'🔒 Server is completely locked down. Non-staff cannot send messages.' if is_lock else '🔓 Server lockdown lifted. Normal permissions restored.'}\n"
+                f"• **Channels Modified**: `{channels_locked}`\n"
+                f"• **Executed By**: {ctx.author.mention}"
+            ),
+            color=discord.Color.dark_red() if is_lock else discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        from utils.embed_utils import set_owner_footer
+        set_owner_footer(embed, self.bot)
+        await status_msg.edit(content=None, embed=embed)
 
     @antinuke.command(name="punishment")
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     async def antinuke_punishment(self, ctx: commands.Context, mode: str):
-        """Set Anti-Nuke punishment mode (strip_roles, ban, kick)."""
+        """Set Anti-Nuke punishment mode (ban, kick, strip_roles, quarantine)."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         mode_clean = mode.lower().strip()
-        if mode_clean not in ["strip_roles", "strip", "ban", "kick"]:
-            await ctx.send("❌ Invalid punishment mode. Choose from: `strip_roles`, `ban`, or `kick`.", ephemeral=True)
+        if mode_clean not in ["ban", "kick", "strip_roles", "strip", "quarantine"]:
+            await ctx.send("❌ Invalid punishment mode. Choose from: `ban`, `kick`, `strip_roles`, or `quarantine`.", ephemeral=True)
             return
 
         target_mode = "strip_roles" if mode_clean in ["strip_roles", "strip"] else mode_clean
         await set_guild_config(ctx.guild.id, {"antinuke_punishment": target_mode})
         await ctx.send(f"✅ Anti-Nuke punishment mode set to **`{target_mode}`**.")
+
+    @antinuke.command(name="threshold")
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    async def antinuke_threshold(self, ctx: commands.Context, action_type: str, max_count: int, window_seconds: int = 10):
+        """Configure custom Anti-Nuke action rate limits and speed thresholds."""
+
+        if not await self._verify_antinuke_admin(ctx):
+            return
+        valid_actions = ["channel_delete", "channel_create", "role_delete", "role_create", "ban", "kick", "bot_add", "webhook_spam", "emoji_delete", "sticker_delete", "permission_abuse", "guild_update"]
+        act_clean = action_type.lower().strip()
+        if act_clean not in valid_actions:
+            await ctx.send(f"❌ Invalid action type. Choose from: {', '.join([f'`{a}`' for a in valid_actions])}", ephemeral=True)
+            return
+
+        if max_count < 1 or window_seconds < 1:
+            await ctx.send("❌ Max count and window seconds must be at least 1.", ephemeral=True)
+            return
+
+        cfg = await get_guild_config(ctx.guild.id)
+        thresholds = cfg.get("antinuke_thresholds", {})
+        thresholds[act_clean] = [max_count, window_seconds]
+        await set_guild_config(ctx.guild.id, {"antinuke_thresholds": thresholds})
+
+        await ctx.send(f"✅ Anti-Nuke threshold for **`{act_clean}`** updated to **`{max_count}`** action(s) within **`{window_seconds}`** second(s).")
 
     @antinuke.group(name="whitelist", invoke_without_command=True)
     @commands.guild_only()
@@ -2628,6 +3496,8 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def antinuke_whitelist_add_user(self, ctx: commands.Context, user: discord.User, category: Optional[str] = "all"):
         """Add a trusted user to the Anti-Nuke whitelist with a specific category."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         cfg = await get_guild_config(ctx.guild.id)
         user_wl = cfg.get("antinuke_whitelisted_users", {})
         if isinstance(user_wl, list):
@@ -2655,6 +3525,8 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def antinuke_whitelist_add_role(self, ctx: commands.Context, role: discord.Role, category: Optional[str] = "all"):
         """Add a trusted role to the Anti-Nuke whitelist with a specific category."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         cfg = await get_guild_config(ctx.guild.id)
         role_wl = cfg.get("antinuke_whitelisted_roles", {})
         if isinstance(role_wl, list):
@@ -2682,6 +3554,8 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def antinuke_whitelist_remove_user(self, ctx: commands.Context, user: discord.User):
         """Remove a user from the Anti-Nuke whitelist."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         cfg = await get_guild_config(ctx.guild.id)
         user_wl = cfg.get("antinuke_whitelisted_users", {})
         if isinstance(user_wl, list):
@@ -2698,6 +3572,8 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def antinuke_whitelist_remove_role(self, ctx: commands.Context, role: discord.Role):
         """Remove a role from the Anti-Nuke whitelist."""
+        if not await self._verify_antinuke_admin(ctx):
+            return
         cfg = await get_guild_config(ctx.guild.id)
         role_wl = cfg.get("antinuke_whitelisted_roles", {})
         if isinstance(role_wl, list):
@@ -2708,6 +3584,7 @@ class Moderation(commands.Cog):
             del role_wl[r_id]
             await set_guild_config(ctx.guild.id, {"antinuke_whitelisted_roles": role_wl})
         await ctx.send(f"✅ Role {role.mention} (`ID: {role.id}`) removed from the Anti-Nuke role whitelist.")
+
 
     @antinuke_whitelist.command(name="show")
     @commands.guild_only()
@@ -2744,6 +3621,7 @@ class Moderation(commands.Cog):
         embed.add_field(name="🎭 Whitelisted Roles", value=r_str, inline=False)
         embed.set_footer(text="Server Owner & Bot Owner are permanently immune.")
         await ctx.send(embed=embed)
+
 
 
 

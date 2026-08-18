@@ -22,6 +22,8 @@ async def load_cogs(bot, package="cogs"):
         if name.startswith("_"):
             continue
         module_name = f"{package}.{name}"
+        if module_name in getattr(bot, "extensions", {}):
+            continue
         try:
             # load_extension may be a coroutine in some discord.py variants; await if needed
             res = bot.load_extension(module_name)
@@ -30,3 +32,4 @@ async def load_cogs(bot, package="cogs"):
             logger.info("Loaded cog: %s", module_name)
         except Exception as exc:
             logger.exception("Failed to load cog %s: %s", module_name, exc)
+

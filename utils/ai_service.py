@@ -61,7 +61,6 @@ async def call_gemini(prompt: str, history: Optional[List[Dict[str, str]]] = Non
         return None
 
     sys_p = system_prompt or DEFAULT_SYSTEM_PROMPT
-    contents = []
     
     # System instruction context
     full_prompt = f"System Instruction: {sys_p}\n\n"
@@ -72,29 +71,41 @@ async def call_gemini(prompt: str, history: Optional[List[Dict[str, str]]] = Non
 
     full_prompt += f"User: {prompt}\nAssistant:"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": full_prompt}]}]
     }
 
+    # Candidate models supported by Gemini API
+    candidate_models = ["gemini-flash-latest", "gemini-3.7-flash"]
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=30) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates and "content" in candidates[0]:
-                        parts = candidates[0]["content"].get("parts", [])
-                        if parts and "text" in parts[0]:
-                            return parts[0]["text"].strip()
-                else:
-                    text = await resp.text()
-                    logger.error("Gemini API returned status %s: %s", resp.status, text)
+            for model in candidate_models:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                try:
+                    async with session.post(url, headers=headers, json=payload, timeout=8) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            candidates = data.get("candidates", [])
+                            if candidates and "content" in candidates[0]:
+                                parts = candidates[0]["content"].get("parts", [])
+                                if parts and "text" in parts[0]:
+                                    return parts[0]["text"].strip()
+                        else:
+                            text = await resp.text()
+                            logger.info("Gemini model %s returned status %s. Trying next available model/provider.", model, resp.status)
+                except Exception as model_err:
+                    logger.debug("Gemini model %s request exception: %s", model, model_err)
     except Exception as e:
         logger.exception("Failed to call Gemini API: %s", e)
     return None
 
+
+
+
+
+import re
 
 async def call_groq(prompt: str, history: Optional[List[Dict[str, str]]] = None, system_prompt: Optional[str] = None) -> Optional[str]:
     api_key = os.getenv("GROQ_API_KEY")
@@ -114,29 +125,41 @@ async def call_groq(prompt: str, history: Optional[List[Dict[str, str]]] = None,
 
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "HelixBot/1.0"
     }
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": messages,
-        "temperature": 0.7,
-        "max_tokens": 1000
-    }
+
+    # Recommended replacement models (gpt-oss-120b, qwen3.6-27b, llama-3.1-8b-instant)
+    candidate_models = ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=30) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    choices = data.get("choices", [])
-                    if choices and "message" in choices[0]:
-                        return choices[0]["message"]["content"].strip()
-                else:
-                    text = await resp.text()
-                    logger.error("Groq API returned status %s: %s", resp.status, text)
+            for model in candidate_models:
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 1000
+                }
+                try:
+                    async with session.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=20) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            choices = data.get("choices", [])
+                            if choices and "message" in choices[0]:
+                                raw_text = choices[0]["message"].get("content", "") or ""
+                                clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+                                if clean_text:
+                                    return clean_text
+                        else:
+                            text = await resp.text()
+                            logger.info("Groq model %s returned status %s. Trying next candidate model.", model, resp.status)
+                except Exception as model_err:
+                    logger.debug("Groq model %s request exception: %s", model, model_err)
     except Exception as e:
         logger.exception("Failed to call Groq API: %s", e)
     return None
+
 
 
 import base64
